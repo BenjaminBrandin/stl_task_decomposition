@@ -1,0 +1,29 @@
+TASK_1:
+  EDGE: [1, 2]
+  TYPE: "formation_predicate"
+  CENTER: [4, -2]
+  EPSILON: 2
+  TEMP_OP: "EventuallyOperator"
+  INTERVAL: [20, 40]
+  INVOLVED_AGENTS: [1, 2]
+  COMMUNICATE: True
+
+TASK_2:
+  EDGE: [3, 3]
+  TYPE: "go_to_goal_predicate_2d"
+  CENTER: [8, 8]
+  EPSILON: 2
+  TEMP_OP: "AlwaysOperator"
+  INTERVAL: [30, 50]
+  INVOLVED_AGENTS: [3]
+  COMMUNICATE: True
+
+TASK_3:
+  EDGE: [1, 4]
+  TYPE: "epsilon_position_closeness_predicate"
+  CENTER: [3, 1]
+  EPSILON: 2
+  TEMP_OP: "EventuallyOperator"
+  INTERVAL: [30, 50]
+  INVOLVED_AGENTS: [1, 4]
+  COMMUNICATE: True
