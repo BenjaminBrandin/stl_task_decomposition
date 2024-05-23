@@ -1,1 +1,1 @@
-# STL_task_decomposition
+# stl_task_decomposition

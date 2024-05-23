@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 import os
 from glob import glob
 
-package_name = 'STL_task_decomposition'
+package_name = 'stl_task_decomposition'
 
 # do not remove these links
 data_files=[
@@ -19,7 +19,7 @@ data_files += [
 
 setup(
     name=package_name,
-    version='0.0.0',
+    version='0.0.0', # try 0.1.0 if it does not work
     packages=[package_name],
     data_files=data_files,
     install_requires=['setuptools'],
