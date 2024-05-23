@@ -26,8 +26,10 @@
   <depend>dataclasses</depend>
   <depend>iterools</depend>
   <depend>abc</depend>
+  <depend>os</depend>
+  <depend>stl_decomposition_msgs</depend>
+  <depend>sml_nexus_description_ros2</depend>
 
-  
 
 
 

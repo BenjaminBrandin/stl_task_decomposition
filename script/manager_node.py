@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import yaml
 import rclpy
 from rclpy.node import Node
@@ -7,6 +8,7 @@ import networkx as nx
 from std_msgs.msg import Int32
 import matplotlib.pyplot as plt
 from stl_decomposition_msgs.msg import TaskMsg
+from ament_index_python.packages import get_package_share_directory
 from decomposition_module import computeNewTaskGraph
 from graph_module import create_communication_graph_from_states, create_task_graph_from_edges
 from builders import (Agent, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, go_to_goal_predicate_2d, 
@@ -46,11 +48,21 @@ class Manager(Node):
         self.task_pub = self.create_publisher(TaskMsg, "tasks", 10)
         self.numOfTasks_pub = self.create_publisher(Int32, "numOfTasks", 10)
 
-        # Load the initial states and the task from the yaml files
-        with open("PATH/TO/YOUR/FILE.YAML") as file: # "/home/benjamin/catkin_ws/src/sml_nexus_tutorials/sml_nexus_tutorials/yaml_files/start_pos.yaml"
-            self.start_pos = yaml.safe_load(file)  
+        # Define package names and subpaths
+        pkg_name = 'stl_task_decomposition'
+        config_folder_subpath = 'config'
+        
+        # Get the paths to the YAML files
+        start_pos_yaml_path = os.path.join(
+            get_package_share_directory(pkg_name), config_folder_subpath, 'start_pos.yaml')
+        tasks_yaml_path = os.path.join(
+            get_package_share_directory(pkg_name), config_folder_subpath, 'tasks.yaml')
 
-        with open("PATH/TO/YOUR/FILE.YAML") as file: # "/home/benjamin/catkin_ws/src/sml_nexus_tutorials/sml_nexus_tutorials/yaml_files/tasks.yaml"
+        # Load the initial states and the tasks from the YAML files
+        with open(start_pos_yaml_path, 'r') as file:
+            self.start_pos = yaml.safe_load(file)
+
+        with open(tasks_yaml_path, 'r') as file:
             self.tasks = yaml.safe_load(file)
 
         # Initial states of the robots and creating the robots

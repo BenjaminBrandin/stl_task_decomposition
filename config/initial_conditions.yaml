@@ -1,0 +1,16 @@
+initial_conditions:
+  agent1:
+    x: 1.0
+    y: 2.0
+    z: 2.0
+    yaw: 0.0
+  agent2:
+    x: 2.5
+    y: 3.5
+    z: 2.2
+    yaw: 2.0
+  agent3:
+    x: -0.5
+    y: -1.5
+    z: 2.1
+    yaw: -1.0

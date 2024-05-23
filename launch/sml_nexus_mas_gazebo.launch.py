@@ -1,0 +1,107 @@
+import os
+import yaml  # Importing YAML package
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.conditions import IfCondition
+from launch.substitutions import LaunchConfiguration,PythonExpression
+from launch.conditions import IfCondition
+from launch_ros.substitutions import FindPackageShare
+
+import xacro
+
+def generate_launch_description():
+    # Specify the name of the package and path to xacro file within the package
+    pkg_name = 'stl_task_decomposition'
+    config_folder_subpath ="config"
+    
+    pkg_name_desc = 'sml_nexus_description'
+    robot_xacro_subpath   = 'description/urdf/sml_nexus.xacro'
+    world_file_subpath    = 'worlds/mocap_world.world'
+    
+    # Reading initial conditions from YAML file
+    yaml_file_path = os.path.join(get_package_share_directory(pkg_name),config_folder_subpath,'initial_conditions.yaml')
+    with open(yaml_file_path, 'r') as file:
+        initial_conditions = yaml.safe_load(file)
+        
+    
+    world_path = os.path.join(get_package_share_directory(pkg_name_desc),world_file_subpath)
+    
+    
+    world = LaunchConfiguration('world') # this is a configuration (an input argument) to the launch file
+    
+    # This is to create a launch file input that can be used from command line to set the world file 
+    # example (ros2 laucnh sml_nexus_description sml_nexus_gazebo.launch.py world:=path/to/your/world)
+    # note that the variable world=  LaunchConfiguration('world') will get this value one given as input by the user
+    declare_world_cmd = DeclareLaunchArgument(
+	    name='world',
+	    default_value=world_path,
+	    description='Full path to the world model file to load')
+    
+    verbose_arg = DeclareLaunchArgument('verbose', 
+                                        default_value='false', 
+                                        description='Set to true to enable verbose output')
+    
+    
+    
+   
+    # Create the launch description and populate
+    ld = LaunchDescription()
+
+    
+    ld.add_action(verbose_arg )
+    ld.add_action(declare_world_cmd)
+    
+    
+    
+    gazebo = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([os.path.join(get_package_share_directory('gazebo_ros'), 'launch', 'gazebo.launch.py')]),
+        launch_arguments=[('verbose', 'true'),('world', world)],  # Pass verbose argument to included launch file
+    )
+    
+    ld.add_action(gazebo)
+
+    
+    for agent_name, pose in initial_conditions['initial_conditions'].items():
+        print(agent_name, pose)
+        # Use xacro to process the file with the dynamic namespace mapping for each robot
+        xacro_file = os.path.join(get_package_share_directory(pkg_name_desc), robot_xacro_subpath)
+        robot_description_config = xacro.process_file(xacro_file, mappings={"namespace": agent_name})  # Set the namespace parameter inside the xacro file
+        robot_desc = robot_description_config.toxml()  
+
+        args = [
+            '-topic', agent_name+'/robot_description', # this is the topic at which the robot description in published
+            '-entity', agent_name, # you can decide the name to give to the entity
+            '-x', str(pose['x']),
+            '-y', str(pose['y']),
+            '-z', str(pose['z']),
+            '-Y', str(pose['yaw']),
+        ]
+        
+
+        node = Node(
+            package='gazebo_ros',
+            executable='spawn_entity.py',
+            arguments=args,
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('verbose'))
+        )
+        ld.add_action(node)
+        
+        remappings = [("/tf", "tf"), ("/tf_static", "tf_static")]
+        # this node will publishe the robot description XML file in the namesspace/robot_description topic so that it can be read by the spawner node above
+        node_robot_state_publisher = Node(
+            package='robot_state_publisher',
+            namespace=agent_name,
+            executable='robot_state_publisher',
+            output='screen',
+            remappings=remappings,
+            parameters=[{'robot_description': robot_desc}],
+        )
+        ld.add_action(node_robot_state_publisher)
+        
+    
+
+    return ld
