@@ -6,7 +6,7 @@ import numpy as np
 import networkx as nx
 from std_msgs.msg import Int32
 import matplotlib.pyplot as plt
-from custom_msg.msg import task_msg
+from stl_decomposition_msgs.msg import TaskMsg
 from decomposition_module import computeNewTaskGraph
 from graph_module import create_communication_graph_from_states, create_task_graph_from_edges
 from builders import (Agent, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, go_to_goal_predicate_2d, 
@@ -43,7 +43,7 @@ class Manager(Node):
         communication_radius: float = 4
 
         # setup publishers
-        self.task_pub = self.create_publisher(task_msg, "tasks", 10)
+        self.task_pub = self.create_publisher(TaskMsg, "tasks", 10)
         self.numOfTasks_pub = self.create_publisher(Int32, "numOfTasks", 10)
 
         # Load the initial states and the task from the yaml files
@@ -176,7 +176,7 @@ class Manager(Node):
         for i,j,attr in self.task_graph.edges(data=True):
             tasks = attr["container"].task_list
             for task in tasks:
-                task_message = task_msg()
+                task_message = TaskMsg()
                 task_message.edge = list(task.edgeTuple)
                 task_message.type = task.type                               
                 task_message.center = task.center                           

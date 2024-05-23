@@ -7,10 +7,32 @@
   <maintainer email="bbrandin@kth.se">benjaminb</maintainer>
   <license>TODO: License declaration</license>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>copy</depend>
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>typing</depend>
+  <depend>numpy</depend>
+  <depend>casadi</depend>
+  <depend>collections</depend>
+  <depend>networkx</depend>
+  <depend>matplotlib</depend>
+  <depend>yaml</depend>
+  <depend>dataclasses</depend>
+  <depend>iterools</depend>
+  <depend>abc</depend>
+
+  
+
+
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
 
   <export>
     <build_type>ament_python</build_type>

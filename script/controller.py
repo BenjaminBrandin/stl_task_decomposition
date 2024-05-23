@@ -12,7 +12,7 @@ from typing import List, Dict
 from std_msgs.msg import Int32
 import casadi.tools as ca_tools
 from collections import defaultdict
-from custom_msg.msg import task_msg
+from stl_decomposition_msgs.msg import TaskMsg, ModelStates
 from geometry_msgs.msg import Twist, PoseStamped, TransformStamped, Vector3Stamped
 from builders import (BarrierFunction, Agent, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, 
                       create_barrier_from_task, go_to_goal_predicate_2d, formation_predicate, 
@@ -42,7 +42,7 @@ class Controller(Node):
         agents                 (dict)                     : A dictionary containing all agents and their states.
         total_agents           (int)                      : The total number of agents in the environment.
         barriers               (list)                     : A list of barrier functions used to construct the constraints of the optimization problem.
-        task                   (task_msg)                 : The message that contains the task information.
+        task                   (TaskMsg)                 : The message that contains the task information.
         task_msg_list          (list)                     : A list of task messages.
         total_tasks            (float)                    : The total number of tasks that was sent by the manager.
         max_velocity           (int)                      : The maximum velocity of the agent used to limit the velocity command.
@@ -74,7 +74,7 @@ class Controller(Node):
         self.nabla_inputs = []
 
         # Agent Information
-        self.agent_pose = PoseStamped()
+        self.agent_pose = ModelStates()
         self.agent_name = self.get_parameter('robot_name').get_parameter_value().string_value
         self.agent_id = int(self.agent_name[-1])
         self.last_pose_time = Time()
@@ -85,7 +85,7 @@ class Controller(Node):
         
         # Barriers and tasks
         self.barriers = []
-        self.task = task_msg()
+        self.task = TaskMsg()
         self.task_msg_list = []
         self.total_tasks = float('inf')
 
@@ -95,8 +95,9 @@ class Controller(Node):
 
         # Setup subscribers
         self.create_subscription(Int32, "/numOfTasks", self.numOfTasks_callback, 10)
-        self.create_subscription(task_msg, "/tasks", self.task_callback, 10)
-        self.create_subscription(PoseStamped, f"/qualisys/{self.agent_name}/pose", self.pose_callback, 10)
+        self.create_subscription(TaskMsg, "/tasks", self.task_callback, 10)
+        # self.create_subscription(PoseStamped, f"/qualisys/{self.agent_name}/pose", self.pose_callback, 10)
+        self.create_subscription(ModelStates, "/mocap_simulator/model_states_mocap", self.pose_callback, 10)
         for id in range(1, self.total_agents + 1):
             self.create_subscription(PoseStamped, f"/nexus{id}/agent_pose", self.other_agent_pose_callback, 10)
 
@@ -148,12 +149,12 @@ class Controller(Node):
         return new_barriers
 
 
-    def create_barriers(self, messages:List[task_msg]) -> List[BarrierFunction]:
+    def create_barriers(self, messages:List[TaskMsg]) -> List[BarrierFunction]:
         """
         Constructs the barriers from the subscribed task messages.     
         
         Args:
-            messages (List[task_msg]): List of task messages.
+            messages (List[TaskMsg]): List of task messages.
         
         Returns:
             barriers_list (List[BarrierFunction]): List of the created barriers.
@@ -361,7 +362,7 @@ class Controller(Node):
             This function is used to get the agent pose from the qualisys system and publish it to the agent_pose topic for easy access.
          
         """
-        self.agent_pose = msg
+        self.agent_pose = msg # This is no longer PoseStamped, but ModelStates
         self.agent_pose_pub.publish(self.agent_pose)
 
     def other_agent_pose_callback(self, msg):
@@ -394,7 +395,7 @@ class Controller(Node):
         Callback function for the task messages.
         
         Args:
-            msg (task_msg): The task message.
+            msg (TaskMsg): The task message.
         """
         self.task_msg_list.append(msg)
 
