@@ -29,6 +29,8 @@
   <depend>os</depend>
   <depend>stl_decomposition_msgs</depend>
   <depend>sml_nexus_description_ros2</depend>
+  <depend>xacro</depend>
+  <depend>gazebo_ros_pkgs</depend>
 
 
 

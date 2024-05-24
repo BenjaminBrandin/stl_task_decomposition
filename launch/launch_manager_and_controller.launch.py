@@ -18,8 +18,6 @@ def generate_launch_description():
         initial_conditions = yaml.safe_load(file)
     num_agents = len(initial_conditions['initial_conditions'])
 
-    # Declare launch arguments
-    use_sim_time = DeclareLaunchArgument('use_sim_time', default_value='true')
 
     # Create the manager node
     manager_node = Node(
@@ -37,10 +35,7 @@ def generate_launch_description():
             executable='controller.py',
             name=f'controller_node_{i}',
             output='screen',
-            parameters=[
-                {'robot_name': f'agent{i}'},  # Adjusted robot_name parameter
-                {'num_robots': num_agents}
-            ]
+            parameters=[{'robot_name': f'agent{i}', 'num_robots': num_agents}],
         )
         controller_nodes.append(controller_node)
 
