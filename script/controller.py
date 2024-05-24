@@ -74,7 +74,7 @@ class Controller(Node):
         self.nabla_inputs = []
 
         # Agent Information
-        self.agent_pose = ModelStates()
+        # self.agent_pose = ModelStates()
         self.agent_name = self.get_parameter('robot_name').get_parameter_value().string_value
         self.agent_id = int(self.agent_name[-1])
         self.last_pose_time = Time()
@@ -93,17 +93,18 @@ class Controller(Node):
         self.max_velocity = 5
         self.vel_cmd_msg = Twist()
 
-        # Setup subscribers
-        self.create_subscription(Int32, "/numOfTasks", self.numOfTasks_callback, 10)
-        self.create_subscription(TaskMsg, "/tasks", self.task_callback, 10)
-        # self.create_subscription(PoseStamped, f"/qualisys/{self.agent_name}/pose", self.pose_callback, 10)
-        self.create_subscription(ModelStates, "/mocap_simulator/model_states_mocap", self.pose_callback, 10)
-        for id in range(1, self.total_agents + 1):
-            self.create_subscription(PoseStamped, f"/nexus{id}/agent_pose", self.other_agent_pose_callback, 10)
-
         # Setup publishers
         self.vel_pub = self.create_publisher(Twist, "cmd_vel", 100)
         self.agent_pose_pub = self.create_publisher(PoseStamped, f"agent_pose", 100)
+
+        # Setup subscribers
+        self.create_subscription(Int32, "/numOfTasks", self.numOfTasks_callback, 10)
+        self.create_subscription(TaskMsg, "/tasks", self.task_callback, 10)
+        self.create_subscription(ModelStates, "/mocap_simulator/model_states_mocap", self.pose_callback, 10)
+        for id in range(1, self.total_agents + 1):
+            self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", self.other_agent_pose_callback, 10)
+
+        
 
         # Setup transform subscriber
         self.tf_buffer = tf2_ros.Buffer()
@@ -350,20 +351,39 @@ class Controller(Node):
             rate.sleep()
 
 
+
     # ----------- Callbacks -----------------
     def pose_callback(self, msg):
         """
         Callback function for the agent's pose.
 
         Args:
-            msg (PoseStamped): The pose message of the agent.
+            msg (ModelStates): Contains the names, poses, and twists of all the agents.
 
         Note:
-            This function is used to get the agent pose from the qualisys system and publish it to the agent_pose topic for easy access.
+            This function is used to get the agent pose from the mocap system and publish it to the agent_pose topic for easy access.
          
         """
-        self.agent_pose = msg # This is no longer PoseStamped, but ModelStates
-        self.agent_pose_pub.publish(self.agent_pose)
+        names = msg.name  # List of agent names
+        poses = msg.pose  # List of Pose objects corresponding to the agents
+        position_msg = PoseStamped() # Extracted position of the agent
+        
+        # Find the index of the agent in the names list
+        try:
+            agent_index = names.index(self.agent_name)
+        except ValueError:
+            self.get_logger().warn(f"{self.agent_name} not found in the names list")
+            return
+        
+        # Get the corresponding pose for the agent
+        agent_pose = poses[agent_index]
+
+        position_msg.pose.position.x = agent_pose.position.x
+        position_msg.pose.position.y = agent_pose.position.y
+        
+        # Publish the agent's position
+        self.agent_pose_pub.publish(position_msg)
+    
 
     def other_agent_pose_callback(self, msg):
         """
@@ -376,7 +396,7 @@ class Controller(Node):
             The way I am extracting the agent id is dependent on the topic name and needs to be adjusted if the topic name changes.
         
         """
-        agent_id              = int(msg._connection_header['topic'].split('/')[-2].replace('nexus', ''))
+        agent_id              = int(msg._connection_header['topic'].split('/')[-2].replace('agent', ''))
         state                 = np.array([msg.pose.position.x, msg.pose.position.y])
         self.agents[agent_id] = Agent(id=agent_id, initial_state=state)
         self.last_pose_time   = Time.now() 

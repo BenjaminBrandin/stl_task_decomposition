@@ -7,10 +7,10 @@ initial_conditions:
   agent2:
     x: 2.5
     y: 3.5
-    z: 2.2
+    z: 2.0
     yaw: 2.0
   agent3:
     x: -0.5
     y: -1.5
-    z: 2.1
+    z: 2.0
     yaw: -1.0

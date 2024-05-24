@@ -54,7 +54,7 @@ class Manager(Node):
         
         # Get the paths to the YAML files
         start_pos_yaml_path = os.path.join(
-            get_package_share_directory(pkg_name), config_folder_subpath, 'start_pos.yaml')
+            get_package_share_directory(pkg_name), config_folder_subpath, 'initial_conditions.yaml')
         tasks_yaml_path = os.path.join(
             get_package_share_directory(pkg_name), config_folder_subpath, 'tasks.yaml')
 
@@ -66,11 +66,15 @@ class Manager(Node):
             self.tasks = yaml.safe_load(file)
 
         # Initial states of the robots and creating the robots
-        start_positions: dict[int, np.ndarray] = {}
-        for i, (state_key, state_value) in enumerate(self.start_pos.items(), start=1):
-            self.agents[i] = Agent(id=i, initial_state=np.array(state_value))
-            start_positions[i] = np.array(state_value)
-
+        start_positions = {}
+        initial_conditions = self.start_pos['initial_conditions']
+        
+        for agent_name, state in initial_conditions.items():
+            agent_id = int(agent_name.replace('agent', ''))
+            position = np.array([state['x'], state['y']])
+            self.agents[agent_id] = Agent(id=agent_id, initial_state=position)
+            start_positions[agent_id] = position
+            
         # Extracting the edges of the tasks
         task_edges = [tuple(task["EDGE"]) for task in self.tasks.values()]
 

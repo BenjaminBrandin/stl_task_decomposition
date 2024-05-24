@@ -151,9 +151,6 @@ def create_communication_graph_from_states(states: Dict[int, np.ndarray], commun
 
     Returns:
         comm_graph (nx.Graph): The communication graph.
-
-    Raises:
-        Exception: If the edge is not compatible with the states.
     """    
 
     comm_graph = nx.Graph()

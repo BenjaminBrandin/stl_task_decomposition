@@ -19,7 +19,7 @@ data_files += [
 
 setup(
     name=package_name,
-    version='0.0.0', # try 0.1.0 if it does not work
+    version='0.1.0', 
     packages=[package_name],
     data_files=data_files,
     install_requires=['setuptools'],
