@@ -18,7 +18,6 @@ def generate_launch_description():
         initial_conditions = yaml.safe_load(file)
     num_agents = len(initial_conditions['initial_conditions'])
 
-
     # Create the manager node
     manager_node = Node(
         package='stl_task_decomposition',

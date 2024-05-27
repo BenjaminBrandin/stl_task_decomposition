@@ -5,6 +5,7 @@ import rclpy
 from rclpy.node import Node
 import numpy as np
 import networkx as nx
+import casadi as ca
 from std_msgs.msg import Int32
 import matplotlib.pyplot as plt
 from stl_decomposition_msgs.msg import TaskMsg
