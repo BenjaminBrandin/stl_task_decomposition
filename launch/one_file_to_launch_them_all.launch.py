@@ -25,6 +25,11 @@ def generate_launch_description():
         initial_conditions = yaml.safe_load(file)
     
     num_agents = len(initial_conditions['initial_conditions'])
+
+    # Declare the robot_name and num_agents parameters
+    robot_name_arg = DeclareLaunchArgument('robot_name', default_value='default_robot_name', description='Name of the robot')
+    num_agents_arg = DeclareLaunchArgument('num_agents', default_value=str(num_agents), description='Number of agents')
+
     
     world_path = os.path.join(get_package_share_directory(pkg_name_desc), world_file_subpath)
     
@@ -45,6 +50,8 @@ def generate_launch_description():
     
     ld.add_action(verbose_arg)
     ld.add_action(declare_world_cmd)
+    ld.add_action(robot_name_arg)
+    ld.add_action(num_agents_arg)
     
     # Launch Gazebo
     gazebo = IncludeLaunchDescription(

@@ -14,7 +14,7 @@ import casadi.tools as ca_tools
 from collections import defaultdict
 from stl_decomposition_msgs.msg import TaskMsg, ModelStates
 from geometry_msgs.msg import Twist, PoseStamped, TransformStamped, Vector3Stamped
-from builders import (BarrierFunction, Agent, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, 
+from .builders import (BarrierFunction, Agent, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, 
                       create_barrier_from_task, go_to_goal_predicate_2d, formation_predicate, 
                       epsilon_position_closeness_predicate, conjunction_of_barriers, collision_avoidance_predicate)
 

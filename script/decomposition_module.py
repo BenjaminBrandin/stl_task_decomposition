@@ -27,8 +27,8 @@ import numpy as np
 import casadi as ca
 import networkx as nx
 from typing import Tuple , List, Dict
-from graph_module import EdgeTaskContainer
-from builders import StlTask, TimeInterval, PredicateFunction, globalOptimizer
+from .graph_module import EdgeTaskContainer
+from .builders import StlTask, TimeInterval, PredicateFunction, globalOptimizer
 
 
 def allNonParametric(listOfFormulas : List[StlTask]) -> bool:
@@ -643,6 +643,8 @@ def computeNewTaskGraph(task_graph:nx.Graph, comm_graph:nx.Graph, task_edges:Lis
     task_graph.remove_edges_from(edges_to_remove)
     
     if decompositionOccurred :
+        task_graph = task_graph.to_directed() # This line was added because of the error "networkx.exception.NetworkXNotImplemented: not implemented for undirected type"
+
         # adding cycles constraints to the optimization problem
         cycles :list[list[int]] = sorted(nx.simple_cycles(task_graph))
         cycles = [cycle for cycle in cycles if len(cycle)>1] # eliminate self loopscycles)

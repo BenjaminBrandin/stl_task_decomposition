@@ -31,8 +31,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'manager_node.py = stl_task_decomposition.script.manager_node.py:main',
-            'controller.py = stl_task_decomposition.script.controller.py:main'
+            'manager_node.py = script.manager_node:main',
+            'controller.py = script.controller:main'
         ],
     },
 )

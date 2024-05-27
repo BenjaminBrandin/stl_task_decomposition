@@ -23,7 +23,7 @@ SOFTWARE.
 """
 import numpy as np
 import networkx as nx 
-from builders import StlTask
+from .builders import StlTask
 from dataclasses import dataclass,field
 from typing import Tuple, List, Dict, Union
 UniqueIdentifier = int

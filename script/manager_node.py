@@ -10,9 +10,9 @@ from std_msgs.msg import Int32
 import matplotlib.pyplot as plt
 from stl_decomposition_msgs.msg import TaskMsg
 from ament_index_python.packages import get_package_share_directory
-from decomposition_module import computeNewTaskGraph
-from graph_module import create_communication_graph_from_states, create_task_graph_from_edges
-from builders import (Agent, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, go_to_goal_predicate_2d, 
+from .decomposition_module import computeNewTaskGraph
+from .graph_module import create_communication_graph_from_states, create_task_graph_from_edges
+from .builders import (Agent, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, go_to_goal_predicate_2d, 
                       formation_predicate, epsilon_position_closeness_predicate, collision_avoidance_predicate)
 
 
