@@ -2,6 +2,7 @@
 import os
 import yaml
 import rclpy
+import time
 from rclpy.node import Node
 import numpy as np
 import networkx as nx
@@ -90,7 +91,7 @@ class Manager(Node):
         
         # publish the tasks
         self.print_tasks()
-        self.plot_graph()
+        # self.plot_graph()
         self.publish_numOfTask()
         self.publish_tasks()
 
@@ -184,7 +185,7 @@ class Manager(Node):
                 print(f"INTERVAL: {task.time_interval.aslist}")
                 print(f"INVOLVED_AGENTS: {task.contributing_agents}")
                 print("-----------------------------------")
-        rclpy.sleep(0.5)
+        time.sleep(0.5)
         
 
     def publish_tasks(self):
@@ -204,7 +205,7 @@ class Manager(Node):
 
                 # Then publish the message
                 self.task_pub.publish(task_message)
-                rclpy.sleep(0.5)
+                time.sleep(0.5)
 
     def publish_numOfTask(self):
         """Publishes the number of tasks to the numOfTasks_pub."""

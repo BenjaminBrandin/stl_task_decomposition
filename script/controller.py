@@ -5,6 +5,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
 import tf2_ros
+import time
 import numpy as np
 import casadi as ca
 import tf2_geometry_msgs
@@ -73,15 +74,21 @@ class Controller(Node):
         self.nabla_funs = []
         self.nabla_inputs = []
 
+        # parameters declaration
+        self.declare_parameter('robot_name', rclpy.Parameter.Type.STRING)
+        self.declare_parameter('num_robots', rclpy.Parameter.Type.INTEGER)
+
         # Agent Information
         # self.agent_pose = ModelStates()
         self.agent_name = self.get_parameter('robot_name').get_parameter_value().string_value
+        print(self.agent_name)
         self.agent_id = int(self.agent_name[-1])
         self.last_pose_time = Time()
 
         # Neighbouring Agents
         self.agents = {}
         self.total_agents = self.get_parameter('num_robots').get_parameter_value().integer_value
+        print(self.total_agents)
         
         # Barriers and tasks
         self.barriers = []
@@ -108,16 +115,16 @@ class Controller(Node):
 
         # Setup transform subscriber
         self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         while not self.tf_buffer.can_transform('mocap', self.agent_name, Time()):
             self.get_logger().info("Wait for transform to be available")
-            rclpy.sleep(1)
+            time.sleep(1)
 
 
         # Wait until all the task messages have been received
         while len(self.task_msg_list) < self.total_tasks:
             # self.get_logger().info(f"Waiting for all tasks to be received. Received {len(self.task_msg_list)} out of {self.total_tasks}")
-            rclpy.sleep(1)
+            time.sleep(1)
 
         # Create the tasks and the barriers
         self.barriers = self.create_barriers(self.task_msg_list)

@@ -26,10 +26,15 @@ def generate_launch_description():
     
     num_agents = len(initial_conditions['initial_conditions'])
 
-    # Declare the robot_name and num_agents parameters
-    robot_name_arg = DeclareLaunchArgument('robot_name', default_value='default_robot_name', description='Name of the robot')
-    num_agents_arg = DeclareLaunchArgument('num_agents', default_value=str(num_agents), description='Number of agents')
+    # Create the launch description and populate
+    ld = LaunchDescription()
 
+    # Declare the robot_name and num_agents parameters
+    # num_agents_arg = DeclareLaunchArgument('num_agents', default_value=str(num_agents), description='Number of agents')
+
+    # for agent_name in initial_conditions['initial_conditions'].keys():
+    #     robot_name_arg = DeclareLaunchArgument(agent_name, default_value=agent_name, description=f'Name of {agent_name}')
+    #     ld.add_action(robot_name_arg)
     
     world_path = os.path.join(get_package_share_directory(pkg_name_desc), world_file_subpath)
     
@@ -45,13 +50,9 @@ def generate_launch_description():
                                         default_value='false', 
                                         description='Set to true to enable verbose output')
     
-    # Create the launch description and populate
-    ld = LaunchDescription()
-    
     ld.add_action(verbose_arg)
     ld.add_action(declare_world_cmd)
-    ld.add_action(robot_name_arg)
-    ld.add_action(num_agents_arg)
+    # ld.add_action(num_agents_arg)
     
     # Launch Gazebo
     gazebo = IncludeLaunchDescription(
