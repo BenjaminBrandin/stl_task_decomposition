@@ -108,6 +108,7 @@ def generate_launch_description():
             executable='controller.py',
             name=f'controller_node_{agent_name}',
             output='screen',
+            emulate_tty= True,
             parameters=[{'robot_name': agent_name, 'num_robots': num_agents}],
         )
         controller_nodes.append(controller_node)

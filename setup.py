@@ -4,6 +4,7 @@ from glob import glob
 
 package_name = 'stl_task_decomposition'
 
+
 # do not remove these links
 data_files=[
  ('share/ament_index/resource_index/packages',
@@ -20,7 +21,7 @@ data_files += [
 setup(
     name=package_name,
     version='0.1.0', 
-    packages=[package_name],
+    packages=find_packages(exclude=["test"]),
     data_files=data_files,
     install_requires=['setuptools'],
     zip_safe=True,
@@ -37,22 +38,3 @@ setup(
     },
 )
 
-
-# setup(
-#     name=package_name,
-#     version='0.1.0', 
-#     packages=[package_name],
-#     data_files=data_files,
-#     install_requires=['setuptools'],
-#     zip_safe=True,
-#     maintainer='benjaminb',
-#     maintainer_email='bbrandin@kth.se',
-#     description='TODO: Package description',
-#     license='TODO: License declaration',
-#     tests_require=['pytest'],
-#     entry_points={
-#         'console_scripts': [
-#             'your_node_name = your_package_name.your_module_name:main'
-#         ],
-#     },
-# )

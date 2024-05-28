@@ -91,7 +91,7 @@ class Manager(Node):
         
         # publish the tasks
         self.print_tasks()
-        # self.plot_graph()
+        self.plot_graph()
         self.publish_numOfTask()
         self.publish_tasks()
 
@@ -205,6 +205,7 @@ class Manager(Node):
 
                 # Then publish the message
                 self.task_pub.publish(task_message)
+                print(task_message)
                 time.sleep(0.5)
 
     def publish_numOfTask(self):
@@ -212,6 +213,7 @@ class Manager(Node):
         flag = Int32()
         flag.data = self.total_tasks
         self.numOfTasks_pub.publish(flag)
+        print(f'Number of tasks: {flag}')
 
 
 def main(args=None):

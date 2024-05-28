@@ -18,6 +18,7 @@ from geometry_msgs.msg import Twist, PoseStamped, TransformStamped, Vector3Stamp
 from .builders import (BarrierFunction, Agent, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, 
                       create_barrier_from_task, go_to_goal_predicate_2d, formation_predicate, 
                       epsilon_position_closeness_predicate, conjunction_of_barriers, collision_avoidance_predicate)
+from tf2_ros import LookupException
 
 
 class Controller(Node):
@@ -116,20 +117,30 @@ class Controller(Node):
         # Setup transform subscriber
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-        while not self.tf_buffer.can_transform('mocap', self.agent_name, Time()):
-            self.get_logger().info("Wait for transform to be available")
-            time.sleep(1)
+        
+        self.timer = self.create_timer(0.33, self.timer_callback) #30 Hz = 0.333s
 
 
         # Wait until all the task messages have been received
         while len(self.task_msg_list) < self.total_tasks:
-            # self.get_logger().info(f"Waiting for all tasks to be received. Received {len(self.task_msg_list)} out of {self.total_tasks}")
+            self.get_logger().info(f"Waiting for all tasks to be received. Received {len(self.task_msg_list)} out of {self.total_tasks}")
             time.sleep(1)
 
         # Create the tasks and the barriers
         self.barriers = self.create_barriers(self.task_msg_list)
         self.solver = self.get_qpsolver_and_parameter_structure()
         self.control_loop()
+    
+
+    def timer_callback(self):
+        try:
+            trans = self.tf_buffer.lookup_transform("world", "nexus_"+self.agent_name, Time())
+            # print(trans)
+            # self.get_logger().info('I read correctly ')
+
+        except LookupException as e:
+            self.get_logger().error('failed to get transform {} \n'.format(repr(e)))
+        
 
 
     def conjunction_on_same_edge(self, barriers:List[BarrierFunction]) -> List[BarrierFunction]:
