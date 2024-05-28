@@ -7,7 +7,7 @@ from rclpy.node import Node
 import numpy as np
 import networkx as nx
 import casadi as ca
-from std_msgs.msg import Int32
+from std_msgs.msg import Int32, Bool
 import matplotlib.pyplot as plt
 from stl_decomposition_msgs.msg import TaskMsg
 from ament_index_python.packages import get_package_share_directory
@@ -45,10 +45,13 @@ class Manager(Node):
         self.agents: dict[int, Agent] = {}
         self.total_tasks: int = 0
         communication_radius: float = 4
+        self.bool_msg = False
 
         # setup publishers
-        self.task_pub = self.create_publisher(TaskMsg, "tasks", 10)
+        self.task_pub = self.create_publisher(TaskMsg, "/tasks", 10)
         self.numOfTasks_pub = self.create_publisher(Int32, "numOfTasks", 10)
+
+        self.create_subscription(Bool, "/controller_ready", self.controller_callback, 10)
 
         # Define package names and subpaths
         pkg_name = 'stl_task_decomposition'
@@ -88,12 +91,25 @@ class Manager(Node):
         # Fill the task graph with the tasks and decompose the edges that are not communicative
         self.update_graph()
         computeNewTaskGraph(self.task_graph, self.comm_graph, task_edges, start_position=start_positions)
+        # print(f"waiting for the controller to initialize: {self.bool_msg}")
+        
         
         # publish the tasks
         self.print_tasks()
-        self.plot_graph()
+        # self.plot_graph()
+        while not self.bool_msg:
+            print(f"waiting for the controller to initialize: {self.bool_msg}")
+            time.sleep(1)
         self.publish_numOfTask()
-        self.publish_tasks()
+        self.publish_tasks()        
+
+
+    def controller_callback(self, msg):
+        self.bool_msg = msg.data
+        if self.bool_msg:
+            print(f"controller is ready: {self.bool_msg}")
+            # self.publish_numOfTask()
+            # self.publish_tasks()
 
 
     def update_graph(self):
@@ -205,7 +221,7 @@ class Manager(Node):
 
                 # Then publish the message
                 self.task_pub.publish(task_message)
-                print(task_message)
+                # print(f"publishing task: {task_message}")
                 time.sleep(0.5)
 
     def publish_numOfTask(self):
@@ -213,7 +229,7 @@ class Manager(Node):
         flag = Int32()
         flag.data = self.total_tasks
         self.numOfTasks_pub.publish(flag)
-        print(f'Number of tasks: {flag}')
+        # print(f'Number of tasks: {flag.data}')
 
 
 def main(args=None):

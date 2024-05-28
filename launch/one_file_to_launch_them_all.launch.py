@@ -28,13 +28,6 @@ def generate_launch_description():
 
     # Create the launch description and populate
     ld = LaunchDescription()
-
-    # Declare the robot_name and num_agents parameters
-    # num_agents_arg = DeclareLaunchArgument('num_agents', default_value=str(num_agents), description='Number of agents')
-
-    # for agent_name in initial_conditions['initial_conditions'].keys():
-    #     robot_name_arg = DeclareLaunchArgument(agent_name, default_value=agent_name, description=f'Name of {agent_name}')
-    #     ld.add_action(robot_name_arg)
     
     world_path = os.path.join(get_package_share_directory(pkg_name_desc), world_file_subpath)
     
@@ -52,7 +45,6 @@ def generate_launch_description():
     
     ld.add_action(verbose_arg)
     ld.add_action(declare_world_cmd)
-    # ld.add_action(num_agents_arg)
     
     # Launch Gazebo
     gazebo = IncludeLaunchDescription(
@@ -60,6 +52,7 @@ def generate_launch_description():
         launch_arguments=[('verbose', 'true'), ('world', world)],
     )
     ld.add_action(gazebo)
+
 
     # Define list to store controller nodes for later sequential launching
     controller_nodes = []
@@ -102,20 +95,20 @@ def generate_launch_description():
         )
         ld.add_action(node_robot_state_publisher)
 
-        # Create controller nodes
-        controller_node = Node(
-            package='stl_task_decomposition',
-            executable='controller.py',
-            name=f'controller_node_{agent_name}',
-            output='screen',
-            emulate_tty= True,
-            parameters=[{'robot_name': agent_name, 'num_robots': num_agents}],
-        )
-        controller_nodes.append(controller_node)
+    #     # Create controller nodes
+    #     controller_node = Node(
+    #         package='stl_task_decomposition',
+    #         executable='controller.py',
+    #         name=f'controller_node_{agent_name}',
+    #         output='screen',
+    #         emulate_tty= True,
+    #         parameters=[{'robot_name': agent_name, 'num_robots': num_agents}],
+    #     )
+    #     controller_nodes.append(controller_node)
 
-    # Add all controller nodes to the launch description
-    for controller_node in controller_nodes:
-        ld.add_action(controller_node)
+    # # Add all controller nodes to the launch description
+    # for controller_node in controller_nodes:
+    #     ld.add_action(controller_node)
 
     # Start the manager node after all controller nodes have been launched
     manager_node = Node(
@@ -123,6 +116,7 @@ def generate_launch_description():
         executable='manager_node.py',
         name='manager_node',
         output='screen',
+        emulate_tty= True,
     )
     ld.add_action(manager_node)
 

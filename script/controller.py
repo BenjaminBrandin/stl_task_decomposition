@@ -10,7 +10,7 @@ import numpy as np
 import casadi as ca
 import tf2_geometry_msgs
 from typing import List, Dict
-from std_msgs.msg import Int32
+from std_msgs.msg import Int32, Bool
 import casadi.tools as ca_tools
 from collections import defaultdict
 from stl_decomposition_msgs.msg import TaskMsg, ModelStates
@@ -82,15 +82,14 @@ class Controller(Node):
         # Agent Information
         # self.agent_pose = ModelStates()
         self.agent_name = self.get_parameter('robot_name').get_parameter_value().string_value
-        print(self.agent_name)
         self.agent_id = int(self.agent_name[-1])
         self.last_pose_time = Time()
+        self.ready = Bool()
 
         # Neighbouring Agents
         self.agents = {}
         self.total_agents = self.get_parameter('num_robots').get_parameter_value().integer_value
-        print(self.total_agents)
-        
+
         # Barriers and tasks
         self.barriers = []
         self.task = TaskMsg()
@@ -104,6 +103,7 @@ class Controller(Node):
         # Setup publishers
         self.vel_pub = self.create_publisher(Twist, "cmd_vel", 100)
         self.agent_pose_pub = self.create_publisher(PoseStamped, f"agent_pose", 100)
+        self.ready_pub = self.create_publisher(Bool, "/controller_ready", 100)
 
         # Setup subscribers
         self.create_subscription(Int32, "/numOfTasks", self.numOfTasks_callback, 10)
@@ -119,22 +119,28 @@ class Controller(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         
         self.timer = self.create_timer(0.33, self.timer_callback) #30 Hz = 0.333s
+        
+
+        self.ready.data = True
+        self.ready_pub.publish(self.ready)
 
 
         # Wait until all the task messages have been received
         while len(self.task_msg_list) < self.total_tasks:
             self.get_logger().info(f"Waiting for all tasks to be received. Received {len(self.task_msg_list)} out of {self.total_tasks}")
+            self.ready.data = True
+            # self.ready_pub.publish(self.ready)
             time.sleep(1)
 
         # Create the tasks and the barriers
-        self.barriers = self.create_barriers(self.task_msg_list)
-        self.solver = self.get_qpsolver_and_parameter_structure()
-        self.control_loop()
+        # self.barriers = self.create_barriers(self.task_msg_list)
+        # self.solver = self.get_qpsolver_and_parameter_structure()
+        # self.control_loop()
     
 
     def timer_callback(self):
         try:
-            trans = self.tf_buffer.lookup_transform("world", "nexus_"+self.agent_name, Time())
+            trans = self.tf_buffer.can_transform("world", "nexus_"+self.agent_name, Time())
             # print(trans)
             # self.get_logger().info('I read correctly ')
 
@@ -354,12 +360,15 @@ class Controller(Node):
                 optimal_input = sol['x']
 
             # Publish the velocity command
+            print("===================================")
+            print(np.clip(optimal_input[0], -self.max_velocity, self.max_velocity)[0])
+            print("===================================")
             self.vel_cmd_msg.linear.x = np.clip(optimal_input[0], -self.max_velocity, self.max_velocity)
             self.vel_cmd_msg.linear.y = np.clip(optimal_input[1], -self.max_velocity, self.max_velocity)
 
             try:
                 # Get transform from mocap frame to agent frame
-                transform = self.tf_buffer.lookup_transform('mocap', self.agent_name, Time())
+                transform = self.tf_buffer.lookup_transform("world", "nexus_"+self.agent_name, Time())
                 vel_cmd_msg_transformed = self.transform_twist(self.vel_cmd_msg, transform)
                 self.vel_pub.publish(vel_cmd_msg_transformed)
             except tf2_ros.TransformException as e:
@@ -428,6 +437,7 @@ class Controller(Node):
         """
         self.total_tasks = msg.data
 
+
     def task_callback(self, msg):
         """
         Callback function for the task messages.
@@ -435,6 +445,7 @@ class Controller(Node):
         Args:
             msg (TaskMsg): The task message.
         """
+        print("Subscribed to task ")
         self.task_msg_list.append(msg)
 
 

@@ -55,12 +55,13 @@ def generate_launch_description():
         ld.add_action(controller_node)
 
     # Start the manager node after all controller nodes have been launched
-    manager_node = Node(
-        package='stl_task_decomposition',
-        executable='manager_node.py',
-        name='manager_node',
-        output='screen',
-    )
-    ld.add_action(manager_node)
+    # manager_node = Node(
+    #     package='stl_task_decomposition',
+    #     executable='manager_node.py',
+    #     name='manager_node',
+    #     output='screen',
+    #     emulate_tty= True,
+    # )
+    # ld.add_action(manager_node)
 
     return ld
