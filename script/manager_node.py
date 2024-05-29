@@ -49,9 +49,9 @@ class Manager(Node):
 
         # setup publishers
         self.task_pub = self.create_publisher(TaskMsg, "/tasks", 10)
-        self.numOfTasks_pub = self.create_publisher(Int32, "numOfTasks", 10)
+        self.numOfTasks_pub = self.create_publisher(Int32, "/numOfTasks", 10)
 
-        self.create_subscription(Bool, "/controller_ready", self.controller_callback, 10)
+        self.create_subscription(Bool, "/controller_ready", self.controller_ready_callback, 10)
 
         # Define package names and subpaths
         pkg_name = 'stl_task_decomposition'
@@ -91,25 +91,16 @@ class Manager(Node):
         # Fill the task graph with the tasks and decompose the edges that are not communicative
         self.update_graph()
         computeNewTaskGraph(self.task_graph, self.comm_graph, task_edges, start_position=start_positions)
-        # print(f"waiting for the controller to initialize: {self.bool_msg}")
+
         
         
         # publish the tasks
         self.print_tasks()
         # self.plot_graph()
-        while not self.bool_msg:
-            print(f"waiting for the controller to initialize: {self.bool_msg}")
-            time.sleep(1)
-        self.publish_numOfTask()
-        self.publish_tasks()        
+        self.controller_timer = self.create_timer(0.33, self.wait_for_controller_callback)
+        
 
 
-    def controller_callback(self, msg):
-        self.bool_msg = msg.data
-        if self.bool_msg:
-            print(f"controller is ready: {self.bool_msg}")
-            # self.publish_numOfTask()
-            # self.publish_tasks()
 
 
     def update_graph(self):
@@ -191,7 +182,6 @@ class Manager(Node):
         for i,j,attr in self.task_graph.edges(data=True):
             tasks = attr["container"].task_list
             for task in tasks:
-                self.total_tasks += 1
                 print("-----------------------------------")
                 print(f"EDGE: {list(task.edgeTuple)}")
                 print(f"TYPE: {task.type}")
@@ -201,15 +191,16 @@ class Manager(Node):
                 print(f"INTERVAL: {task.time_interval.aslist}")
                 print(f"INVOLVED_AGENTS: {task.contributing_agents}")
                 print("-----------------------------------")
-        time.sleep(0.5)
+        
         
 
     def publish_tasks(self):
-        """Publishes the tasks to the task_pub."""
+        """Publishes the tasks to the topic tasks."""
         tasks: list[StlTask] = []
         for i,j,attr in self.task_graph.edges(data=True):
             tasks = attr["container"].task_list
             for task in tasks:
+                self.total_tasks += 1
                 task_message = TaskMsg()
                 task_message.edge = list(task.edgeTuple)
                 task_message.type = task.type                               
@@ -222,14 +213,30 @@ class Manager(Node):
                 # Then publish the message
                 self.task_pub.publish(task_message)
                 # print(f"publishing task: {task_message}")
-                time.sleep(0.5)
+                # time.sleep(0.1)
 
     def publish_numOfTask(self):
-        """Publishes the number of tasks to the numOfTasks_pub."""
-        flag = Int32()
-        flag.data = self.total_tasks
-        self.numOfTasks_pub.publish(flag)
+        """Publishes the number of tasks to the topic numOfTasks."""
+        total = Int32()
+        total.data = self.total_tasks
+        self.numOfTasks_pub.publish(total)
         # print(f'Number of tasks: {flag.data}')
+
+
+
+    #  ==================== Callbacks ====================
+    def controller_ready_callback(self, msg):
+        self.bool_msg = msg.data
+
+
+    def wait_for_controller_callback(self):
+        if self.bool_msg:
+            self.controller_timer.cancel()
+            self.publish_tasks()        
+            self.publish_numOfTask()
+        else:
+            # print("Waiting for the controller to be ready...")
+            pass
 
 
 def main(args=None):
@@ -238,6 +245,7 @@ def main(args=None):
     rclpy.spin(manager)
     manager.destroy_node()
     rclpy.shutdown() 
+
 
 if __name__ == "__main__":
     main()

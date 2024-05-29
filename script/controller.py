@@ -3,7 +3,7 @@ import sys
 import copy
 import rclpy
 from rclpy.node import Node
-from rclpy.time import Time
+from rclpy.time import Time, Duration
 import tf2_ros
 import time
 import numpy as np
@@ -84,9 +84,6 @@ class Controller(Node):
         self.agent_name = self.get_parameter('robot_name').get_parameter_value().string_value
         self.agent_id = int(self.agent_name[-1])
         self.last_pose_time = Time()
-        self.ready = Bool()
-
-        # Neighbouring Agents
         self.agents = {}
         self.total_agents = self.get_parameter('num_robots').get_parameter_value().integer_value
 
@@ -103,7 +100,7 @@ class Controller(Node):
         # Setup publishers
         self.vel_pub = self.create_publisher(Twist, "cmd_vel", 100)
         self.agent_pose_pub = self.create_publisher(PoseStamped, f"agent_pose", 100)
-        self.ready_pub = self.create_publisher(Bool, "/controller_ready", 100)
+        self.ready_pub = self.create_publisher(Bool, "/controller_ready", 10)
 
         # Setup subscribers
         self.create_subscription(Int32, "/numOfTasks", self.numOfTasks_callback, 10)
@@ -112,43 +109,21 @@ class Controller(Node):
         for id in range(1, self.total_agents + 1):
             self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", self.other_agent_pose_callback, 10)
 
-        
-
         # Setup transform subscriber
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.check_transform_timer = self.create_timer(0.33, self.transform_timer_callback) # 30 Hz = 0.333s
         
-        self.timer = self.create_timer(0.33, self.timer_callback) #30 Hz = 0.333s
-        
-
-        self.ready.data = True
-        self.ready_pub.publish(self.ready)
-
+        # Send ready signal to manager
+        # ready = Bool()
+        # ready.data = True
+        # self.ready_pub.publish(ready)
 
         # Wait until all the task messages have been received
-        while len(self.task_msg_list) < self.total_tasks:
-            self.get_logger().info(f"Waiting for all tasks to be received. Received {len(self.task_msg_list)} out of {self.total_tasks}")
-            self.ready.data = True
-            # self.ready_pub.publish(self.ready)
-            time.sleep(1)
+        self.task_check_timer = self.create_timer(0.33, self.check_tasks_callback)  # 30 Hz = 0.333s
 
-        # Create the tasks and the barriers
-        # self.barriers = self.create_barriers(self.task_msg_list)
-        # self.solver = self.get_qpsolver_and_parameter_structure()
-        # self.control_loop()
+
     
-
-    def timer_callback(self):
-        try:
-            trans = self.tf_buffer.can_transform("world", "nexus_"+self.agent_name, Time())
-            # print(trans)
-            # self.get_logger().info('I read correctly ')
-
-        except LookupException as e:
-            self.get_logger().error('failed to get transform {} \n'.format(repr(e)))
-        
-
-
     def conjunction_on_same_edge(self, barriers:List[BarrierFunction]) -> List[BarrierFunction]:
         """
         Loop through the barriers and create the conjunction of the barriers on the same edge.
@@ -360,9 +335,9 @@ class Controller(Node):
                 optimal_input = sol['x']
 
             # Publish the velocity command
-            print("===================================")
-            print(np.clip(optimal_input[0], -self.max_velocity, self.max_velocity)[0])
-            print("===================================")
+            # print("===================================")
+            # print(np.clip(optimal_input[0], -self.max_velocity, self.max_velocity)[0])
+            # print("===================================")
             self.vel_cmd_msg.linear.x = np.clip(optimal_input[0], -self.max_velocity, self.max_velocity)
             self.vel_cmd_msg.linear.y = np.clip(optimal_input[1], -self.max_velocity, self.max_velocity)
 
@@ -379,7 +354,36 @@ class Controller(Node):
 
 
 
-    # ----------- Callbacks -----------------
+    def transform_twist(self, twist=Twist, transform_stamped=TransformStamped) -> Twist:
+        """
+        Transforms the twist from one frame to another frame.
+        
+        Args:
+            twist             (Twist)            : The cmd_vel message to be transformed.
+            transform_stamped (TransformStamped) : The transform between the frames.
+
+        Returns:
+            new_twist (Twist) : The transformed cmd_vel message.
+        """
+        transform_stamped_ = copy.deepcopy(transform_stamped)
+        # Inverse real-part of quaternion to inverse rotation
+        transform_stamped_.transform.rotation.w = - transform_stamped_.transform.rotation.w
+
+        twist_vel = Vector3Stamped()
+        twist_rot = Vector3Stamped()
+        twist_vel.vector = twist.linear
+        twist_rot.vector = twist.angular
+        out_vel = tf2_geometry_msgs.do_transform_vector3(twist_vel, transform_stamped_)
+        out_rot = tf2_geometry_msgs.do_transform_vector3(twist_rot, transform_stamped_)
+
+        new_twist = Twist()
+        new_twist.linear = out_vel.vector
+        new_twist.angular = out_rot.vector
+
+        return new_twist
+
+
+    # ================= Callbacks =====================
     def pose_callback(self, msg):
         """
         Callback function for the agent's pose.
@@ -426,7 +430,8 @@ class Controller(Node):
         agent_id              = int(msg._connection_header['topic'].split('/')[-2].replace('agent', ''))
         state                 = np.array([msg.pose.position.x, msg.pose.position.y])
         self.agents[agent_id] = Agent(id=agent_id, initial_state=state)
-        self.last_pose_time   = Time.now() 
+        self.last_pose_time   = Time.now()
+        print(f"Received pose for agent {agent_id} at {state}") 
 
     def numOfTasks_callback(self, msg):
         """
@@ -445,37 +450,37 @@ class Controller(Node):
         Args:
             msg (TaskMsg): The task message.
         """
-        print("Subscribed to task ")
+        # print("Subscribed to task ")
         self.task_msg_list.append(msg)
 
 
-def transform_twist(twist=Twist, transform_stamped=TransformStamped) -> Twist:
-    """
-    Transforms the twist from one frame to another frame.
+    def check_tasks_callback(self):
+        """Check if all tasks have been received."""
+        if len(self.task_msg_list) >= float('inf'):#self.total_tasks:
+            self.task_check_timer.cancel()  # Stop the timer if all tasks are received
+            self.get_logger().info("All tasks received.")
+            # Create the tasks and the barriers
+            self.barriers = self.create_barriers(self.task_msg_list)
+            self.solver = self.get_qpsolver_and_parameter_structure()
+            self.control_loop()
+
+        else:
+            ready = Bool()
+            ready.data = True
+            self.ready_pub.publish(ready)
+            # self.get_logger().info(f"Waiting for all tasks to be received. Received {len(self.task_msg_list)} out of {self.total_tasks}")
+
+
+    def transform_timer_callback(self):
+        try:
+            trans = self.tf_buffer.can_transform("world", "nexus_"+self.agent_name, Time())
+            self.get_logger().info('Found transform')
+            self.check_transform_timer.cancel() # Stop the timer if the transform is found
+        except LookupException as e:
+            self.get_logger().error('failed to get transform {} \n'.format(repr(e)))
+
+
     
-    Args:
-        twist             (Twist)            : The cmd_vel message to be transformed.
-        transform_stamped (TransformStamped) : The transform between the frames.
-
-    Returns:
-        new_twist (Twist) : The transformed cmd_vel message.
-    """
-    transform_stamped_ = copy.deepcopy(transform_stamped)
-    # Inverse real-part of quaternion to inverse rotation
-    transform_stamped_.transform.rotation.w = - transform_stamped_.transform.rotation.w
-
-    twist_vel = Vector3Stamped()
-    twist_rot = Vector3Stamped()
-    twist_vel.vector = twist.linear
-    twist_rot.vector = twist.angular
-    out_vel = tf2_geometry_msgs.do_transform_vector3(twist_vel, transform_stamped_)
-    out_rot = tf2_geometry_msgs.do_transform_vector3(twist_rot, transform_stamped_)
-
-    new_twist = Twist()
-    new_twist.linear = out_vel.vector
-    new_twist.angular = out_rot.vector
-
-    return new_twist
 
 
 def main(args=None):
