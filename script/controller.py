@@ -242,7 +242,6 @@ class Controller(Node):
         # Create the optimization solver
         qp = {'x': opt_vector, 'f': cost, 'g': constraints, 'p': self.parameters}
         solver = ca.qpsol('sol', 'qpoases', qp, {'printLevel': 'none'})
-        self.control_loop_timer = self.create_timer(1.0, self.control_loop)
 
         return solver
 
@@ -460,10 +459,7 @@ class Controller(Node):
             # Create the tasks and the barriers
             self.barriers = self.create_barriers(self.task_msg_list)
             self.solver = self.get_qpsolver_and_parameter_structure()
-            # self.control_loop()
-            # self.control_loop_timer = self.create_timer(1.0, self.control_loop)
-
-
+            self.control_loop_timer = self.create_timer(0.5, self.control_loop)
         else:
             ready = Bool()
             ready.data = True
