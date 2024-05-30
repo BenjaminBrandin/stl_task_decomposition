@@ -329,6 +329,7 @@ class Controller(Node):
             optimal_input = sol['x']
 
         print(f"Optimal input {self.agent_id}: {optimal_input}")
+        print(f"optimal_constraints {self.agent_id}: {sol['g']}")
     
         # Publish the velocity command
         linear_velocity = optimal_input[:2]
@@ -345,6 +346,8 @@ class Controller(Node):
             self.vel_pub.publish(vel_cmd_msg_transformed)
         except tf2_ros.TransformException as e:
             self.get_logger().error(f"Transform error: {e}")
+
+
 
 
 
