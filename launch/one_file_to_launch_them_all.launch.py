@@ -99,7 +99,7 @@ def generate_launch_description():
     #     controller_node = Node(
     #         package='stl_task_decomposition',
     #         executable='controller.py',
-    #         name=f'controller_node_{agent_name}',
+    #         name=f'{agent_name}',
     #         output='screen',
     #         emulate_tty= True,
     #         parameters=[{'robot_name': agent_name, 'num_robots': num_agents}],

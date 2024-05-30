@@ -6,6 +6,7 @@ from rclpy.node import Node
 from rclpy.time import Time, Duration
 import tf2_ros
 import time
+from functools import partial
 import numpy as np
 import casadi as ca
 import tf2_geometry_msgs
@@ -13,7 +14,8 @@ from typing import List, Dict
 from std_msgs.msg import Int32, Bool
 import casadi.tools as ca_tools
 from collections import defaultdict
-from stl_decomposition_msgs.msg import TaskMsg, ModelStates
+from stl_decomposition_msgs.msg import TaskMsg
+from gazebo_msgs.msg import ModelStates
 from geometry_msgs.msg import Twist, PoseStamped, TransformStamped, Vector3Stamped
 from .builders import (BarrierFunction, Agent, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, 
                       create_barrier_from_task, go_to_goal_predicate_2d, formation_predicate, 
@@ -80,10 +82,8 @@ class Controller(Node):
         self.declare_parameter('num_robots', rclpy.Parameter.Type.INTEGER)
 
         # Agent Information
-        # self.agent_pose = ModelStates()
         self.agent_name = self.get_parameter('robot_name').get_parameter_value().string_value
         self.agent_id = int(self.agent_name[-1])
-        self.last_pose_time = Time()
         self.agents = {}
         self.total_agents = self.get_parameter('num_robots').get_parameter_value().integer_value
 
@@ -94,12 +94,12 @@ class Controller(Node):
         self.total_tasks = float('inf')
 
         # Velocity Command Message
-        self.max_velocity = 5
+        self.max_velocity = 5.0
         self.vel_cmd_msg = Twist()
 
         # Setup publishers
-        self.vel_pub = self.create_publisher(Twist, "cmd_vel", 100)
-        self.agent_pose_pub = self.create_publisher(PoseStamped, f"agent_pose", 100)
+        self.vel_pub = self.create_publisher(Twist, f"/agent{self.agent_id}/cmd_vel", 100)
+        self.agent_pose_pub = self.create_publisher(PoseStamped, f"/agent{self.agent_id}/agent_pose", 10)
         self.ready_pub = self.create_publisher(Bool, "/controller_ready", 10)
 
         # Setup subscribers
@@ -107,21 +107,16 @@ class Controller(Node):
         self.create_subscription(TaskMsg, "/tasks", self.task_callback, 10)
         self.create_subscription(ModelStates, "/mocap_simulator/model_states_mocap", self.pose_callback, 10)
         for id in range(1, self.total_agents + 1):
-            self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", self.other_agent_pose_callback, 10)
+            self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", 
+                                    partial(self.other_agent_pose_callback, agent_id=id), 10)
 
         # Setup transform subscriber
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         self.check_transform_timer = self.create_timer(0.33, self.transform_timer_callback) # 30 Hz = 0.333s
-        
-        # Send ready signal to manager
-        # ready = Bool()
-        # ready.data = True
-        # self.ready_pub.publish(ready)
 
         # Wait until all the task messages have been received
-        self.task_check_timer = self.create_timer(0.33, self.check_tasks_callback)  # 30 Hz = 0.333s
-
+        self.task_check_timer = self.create_timer(0.33, self.check_tasks_callback) 
 
     
     def conjunction_on_same_edge(self, barriers:List[BarrierFunction]) -> List[BarrierFunction]:
@@ -184,9 +179,6 @@ class Controller(Node):
             elif message.type == "epsilon_position_closeness_predicate":
                 predicate = epsilon_position_closeness_predicate(epsilon=message.epsilon, agent_i=self.agents[message.involved_agents[0]], 
                                                                  agent_j=self.agents[message.involved_agents[1]])
-            elif message.type == "collision_avoidance_predicate":
-                predicate = collision_avoidance_predicate(epsilon=message.epsilon, agent_i=self.agents[message.involved_agents[0]], 
-                                                          agent_j=self.agents[message.involved_agents[1]])
             else:
                 raise Exception(f"Task type {message.type} is not supported")
             
@@ -205,7 +197,7 @@ class Controller(Node):
         
         # Create the conjunction of the barriers on the same edge
         barriers_list = self.conjunction_on_same_edge(barriers_list)
-
+        
         return barriers_list
 
 
@@ -250,6 +242,7 @@ class Controller(Node):
         # Create the optimization solver
         qp = {'x': opt_vector, 'f': cost, 'g': constraints, 'p': self.parameters}
         solver = ca.qpsol('sol', 'qpoases', qp, {'printLevel': 'none'})
+        self.control_loop_timer = self.create_timer(1.0, self.control_loop)
 
         return solver
 
@@ -311,46 +304,49 @@ class Controller(Node):
     def control_loop(self):
         """This is the main control loop of the controller. It calculates the optimal input and publishes the velocity command to the cmd_vel topic."""
         
-        rate = self.create_rate(50)
-        while rclpy.ok():
             # Fill the structure with the current values
-            current_parameters = self.parameters(0)
-            current_parameters["time"] = ca.vertcat(self.last_pose_time.nanoseconds / 1e9)
-            for id in self.agents.keys():
-                current_parameters[f'state_{id}'] = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
+        current_parameters = self.parameters(0)
+        current_parameters["time"] = ca.vertcat(self.last_pose_time.nanosec / 1e9)
+        for id in self.agents.keys():
+            current_parameters[f'state_{id}'] = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
 
-            # Calculate the gradient values
-            nabla_list = []
-            inputs = {}
-            for i, nabla_fun in enumerate(self.nabla_funs):
-                inputs = {key: current_parameters[key] for key in self.nabla_inputs[i].keys()}
-                nabla_val = nabla_fun.call(inputs)["value"]
-                nabla_list.append(ca.norm_2(nabla_val))
 
-            # Solve the optimization problem 
-            if any(ca.norm_2(val) < 1e-10 for val in nabla_list):
-                optimal_input = ca.MX([0, 0])
-            else:
-                sol = self.solver(p=current_parameters, ubg=0)
-                optimal_input = sol['x']
+        # Calculate the gradient values
+        nabla_list = []
+        inputs = {}
+        for i, nabla_fun in enumerate(self.nabla_funs):
+            inputs = {key: current_parameters[key] for key in self.nabla_inputs[i].keys()}
+            nabla_val = nabla_fun.call(inputs)["value"]
+            nabla_list.append(ca.norm_2(nabla_val))
+            print(f"nabla_val {self.agent_id}: {nabla_val}")
 
-            # Publish the velocity command
-            # print("===================================")
-            # print(np.clip(optimal_input[0], -self.max_velocity, self.max_velocity)[0])
-            # print("===================================")
-            self.vel_cmd_msg.linear.x = np.clip(optimal_input[0], -self.max_velocity, self.max_velocity)
-            self.vel_cmd_msg.linear.y = np.clip(optimal_input[1], -self.max_velocity, self.max_velocity)
+        # Solve the optimization problem 
+        if any(ca.norm_2(val) < 1e-10 for val in nabla_list):
+            # optimal_input = ca.MX([0, 0, 0])
+            print("nambla is zero")
+            optimal_input = ca.MX.zeros(2 + len(self.slack_variables))
+        else:
+            sol = self.solver(p=current_parameters, ubg=0)
+            optimal_input = sol['x']
 
-            try:
-                # Get transform from mocap frame to agent frame
-                transform = self.tf_buffer.lookup_transform("world", "nexus_"+self.agent_name, Time())
-                vel_cmd_msg_transformed = self.transform_twist(self.vel_cmd_msg, transform)
-                self.vel_pub.publish(vel_cmd_msg_transformed)
-            except tf2_ros.TransformException as e:
-                self.get_logger().error(f"Transform error: {e}")
-                continue
+        print(f"Optimal input {self.agent_id}: {optimal_input}")
+    
+        # Publish the velocity command
+        linear_velocity = optimal_input[:2]
+        clipped_linear_velocity = np.clip(linear_velocity, -self.max_velocity, self.max_velocity)
+        self.vel_cmd_msg.linear.x = clipped_linear_velocity[0][0]
+        self.vel_cmd_msg.linear.y = clipped_linear_velocity[1][0]
 
-            rate.sleep()
+
+        try:
+            # Get transform from mocap frame to agent frame
+            transform = self.tf_buffer.lookup_transform("world", "nexus_"+self.agent_name, Time())
+            vel_cmd_msg_transformed = self.transform_twist(self.vel_cmd_msg, transform)
+            print(f"vel_cmd_transformed {self.agent_id}: {vel_cmd_msg_transformed.linear.x}, {vel_cmd_msg_transformed.linear.y}")
+            self.vel_pub.publish(vel_cmd_msg_transformed)
+        except tf2_ros.TransformException as e:
+            self.get_logger().error(f"Transform error: {e}")
+
 
 
 
@@ -380,6 +376,7 @@ class Controller(Node):
         new_twist.linear = out_vel.vector
         new_twist.angular = out_rot.vector
 
+
         return new_twist
 
 
@@ -408,7 +405,8 @@ class Controller(Node):
         
         # Get the corresponding pose for the agent
         agent_pose = poses[agent_index]
-
+        # position_msg.header.frame_id = str(names[agent_index])
+        position_msg.header.stamp = self.get_clock().now().to_msg()
         position_msg.pose.position.x = agent_pose.position.x
         position_msg.pose.position.y = agent_pose.position.y
         
@@ -416,22 +414,21 @@ class Controller(Node):
         self.agent_pose_pub.publish(position_msg)
     
 
-    def other_agent_pose_callback(self, msg):
+    def other_agent_pose_callback(self, msg, agent_id):
         """
         Callback function to store all the agents' poses.
         
         Args:
             msg (PoseStamped): The pose message of the other agents.
+            agent_id (int): The ID of the agent extracted from the topic name.
 
-        Note:
-            The way I am extracting the agent id is dependent on the topic name and needs to be adjusted if the topic name changes.
-        
         """
-        agent_id              = int(msg._connection_header['topic'].split('/')[-2].replace('agent', ''))
-        state                 = np.array([msg.pose.position.x, msg.pose.position.y])
+
+        state = np.array([msg.pose.position.x, msg.pose.position.y])
         self.agents[agent_id] = Agent(id=agent_id, initial_state=state)
-        self.last_pose_time   = Time.now()
-        print(f"Received pose for agent {agent_id} at {state}") 
+        self.last_pose_time = self.get_clock().now().to_msg()
+
+
 
     def numOfTasks_callback(self, msg):
         """
@@ -456,13 +453,16 @@ class Controller(Node):
 
     def check_tasks_callback(self):
         """Check if all tasks have been received."""
-        if len(self.task_msg_list) >= float('inf'):#self.total_tasks:
+        if len(self.task_msg_list) >= self.total_tasks:
             self.task_check_timer.cancel()  # Stop the timer if all tasks are received
             self.get_logger().info("All tasks received.")
+            
             # Create the tasks and the barriers
             self.barriers = self.create_barriers(self.task_msg_list)
             self.solver = self.get_qpsolver_and_parameter_structure()
-            self.control_loop()
+            # self.control_loop()
+            # self.control_loop_timer = self.create_timer(1.0, self.control_loop)
+
 
         else:
             ready = Bool()

@@ -39,13 +39,14 @@ def generate_launch_description():
     # Define list to store controller nodes for later sequential launching
     controller_nodes = []
     # Spawn robots into Gazebo and start their controller nodes
-    for agent_name, pose in initial_conditions['initial_conditions'].items():
+    for agent_name in initial_conditions['initial_conditions'].keys():
         # Create controller nodes
         controller_node = Node(
             package='stl_task_decomposition',
             executable='controller.py',
-            name=f'controller_node_{agent_name}',
+            name=f'{agent_name}',
             output='screen',
+            emulate_tty= True,
             parameters=[{'robot_name': agent_name, 'num_robots': num_agents}],
         )
         controller_nodes.append(controller_node)

@@ -97,7 +97,7 @@ class Manager(Node):
         # publish the tasks
         self.print_tasks()
         # self.plot_graph()
-        self.controller_timer = self.create_timer(0.33, self.wait_for_controller_callback)
+        self.controller_timer = self.create_timer(0.5, self.wait_for_controller_callback)
         
 
 
@@ -146,9 +146,6 @@ class Manager(Node):
         elif task_info["TYPE"] == "epsilon_position_closeness_predicate": 
             predicate = epsilon_position_closeness_predicate(epsilon=task_info["EPSILON"], agent_i=self.agents[task_info["INVOLVED_AGENTS"][0]], 
                                                              agent_j=self.agents[task_info["INVOLVED_AGENTS"][1]])
-        elif task_info["TYPE"] == "collision_avoidance_predicate":
-            predicate = collision_avoidance_predicate(epsilon=task_info["EPSILON"], agent_i=self.agents[task_info["INVOLVED_AGENTS"][0]], 
-                                                      agent_j=self.agents[task_info["INVOLVED_AGENTS"][1]])
         else:
             raise Exception(f'Task type: {task_info["TYPE"]} is not supported')
         
