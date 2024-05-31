@@ -95,13 +95,10 @@ class Manager(Node):
         
         
         # publish the tasks
-        self.print_tasks()
+        # self.print_tasks()
         # self.plot_graph()
-        self.controller_timer = self.create_timer(0.5, self.wait_for_controller_callback)
+        self.controller_timer = self.create_timer(0.33, self.wait_for_controller_callback)
         
-
-
-
 
     def update_graph(self):
         """Adds the tasks to the edges of the task graph."""
@@ -209,21 +206,22 @@ class Manager(Node):
 
                 # Then publish the message
                 self.task_pub.publish(task_message)
-                # print(f"publishing task: {task_message}")
-                # time.sleep(0.1)
+                # print(f"Published task: {task_message}")
+
 
     def publish_numOfTask(self):
         """Publishes the number of tasks to the topic numOfTasks."""
         total = Int32()
         total.data = self.total_tasks
         self.numOfTasks_pub.publish(total)
-        # print(f'Number of tasks: {flag.data}')
+        # print(f'Number of tasks: {total.data}')
 
 
 
     #  ==================== Callbacks ====================
     def controller_ready_callback(self, msg):
         self.bool_msg = msg.data
+        # print(f"Controller ready: {self.bool_msg}")
 
 
     def wait_for_controller_callback(self):

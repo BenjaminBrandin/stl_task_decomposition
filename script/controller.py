@@ -76,6 +76,8 @@ class Controller(Node):
         self.alpha_fun = ca.Function('alpha_fun', [self.dummy_scalar], [self.scale_factor * self.dummy_scalar])
         self.nabla_funs = []
         self.nabla_inputs = []
+        self.initial_time = 0
+
 
         # parameters declaration
         self.declare_parameter('robot_name', rclpy.Parameter.Type.STRING)
@@ -84,7 +86,8 @@ class Controller(Node):
         # Agent Information
         self.agent_name = self.get_parameter('robot_name').get_parameter_value().string_value
         self.agent_id = int(self.agent_name[-1])
-        self.agents = {}
+        self.agents = {} # position of all the agents in the system including self agent
+        self.latest_self_transform = TransformStamped()
         self.total_agents = self.get_parameter('num_robots').get_parameter_value().integer_value
 
         # Barriers and tasks
@@ -105,7 +108,6 @@ class Controller(Node):
         # Setup subscribers
         self.create_subscription(Int32, "/numOfTasks", self.numOfTasks_callback, 10)
         self.create_subscription(TaskMsg, "/tasks", self.task_callback, 10)
-        self.create_subscription(ModelStates, "/mocap_simulator/model_states_mocap", self.pose_callback, 10)
         for id in range(1, self.total_agents + 1):
             self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", 
                                     partial(self.other_agent_pose_callback, agent_id=id), 10)
@@ -113,10 +115,10 @@ class Controller(Node):
         # Setup transform subscriber
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        
         self.check_transform_timer = self.create_timer(0.33, self.transform_timer_callback) # 30 Hz = 0.333s
-
         # Wait until all the task messages have been received
-        self.task_check_timer = self.create_timer(0.33, self.check_tasks_callback) 
+        self.task_check_timer = self.create_timer(0.5, self.check_tasks_callback) 
 
     
     def conjunction_on_same_edge(self, barriers:List[BarrierFunction]) -> List[BarrierFunction]:
@@ -235,7 +237,7 @@ class Controller(Node):
         cost = self.input_vector.T @ self.input_vector
         for id,slack in self.slack_variables.items():
             if id == self.agent_id:
-                cost += 1000* slack**2
+                cost += 1000* slack**2 # 1000 makes the agent prioritize its own tasks and almost ignore the other agents
             else:
                 cost += 10* slack**2
 
@@ -269,7 +271,7 @@ class Controller(Node):
                 neighbour_id = self.agent_id
 
             # Create the named inputs for the barrier function
-            named_inputs = {"state_"+str(id):self.parameters["state_"+str(id)] for id in barrier.contributing_agents}
+            named_inputs = {"state_"+str(id): self.parameters["state_"+str(id)] for id in barrier.contributing_agents}
             named_inputs["time"] = self.parameters["time"]
 
             # Get the necessary functions from the barrier
@@ -302,12 +304,16 @@ class Controller(Node):
 
     def control_loop(self):
         """This is the main control loop of the controller. It calculates the optimal input and publishes the velocity command to the cmd_vel topic."""
-        
+        # print("=============================================")
             # Fill the structure with the current values
         current_parameters = self.parameters(0)
-        current_parameters["time"] = ca.vertcat(self.last_pose_time.nanosec / 1e9)
+        time_in_sec,time_in_nano = self.get_clock().now().seconds_nanoseconds()
+        # print(time_in_sec)
+        current_parameters["time"] = ca.vertcat(time_in_sec-self.initial_time)
+        # print(f"time: {current_parameters['time']}")
         for id in self.agents.keys():
             current_parameters[f'state_{id}'] = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
+            # print(f"state of agent{id}: {self.agents[id].state[0]}, {self.agents[id].state[1]}")
 
 
         # Calculate the gradient values
@@ -317,39 +323,31 @@ class Controller(Node):
             inputs = {key: current_parameters[key] for key in self.nabla_inputs[i].keys()}
             nabla_val = nabla_fun.call(inputs)["value"]
             nabla_list.append(ca.norm_2(nabla_val))
-            print(f"nabla_val {self.agent_id}: {nabla_val}")
+        # print(f"nabla_list {self.agent_id}: {nabla_list}")
 
         # Solve the optimization problem 
         if any(ca.norm_2(val) < 1e-10 for val in nabla_list):
             # optimal_input = ca.MX([0, 0, 0])
-            print("nambla is zero")
+            # print("nambla is zero")
             optimal_input = ca.MX.zeros(2 + len(self.slack_variables))
         else:
             sol = self.solver(p=current_parameters, ubg=0)
             optimal_input = sol['x']
 
-        print(f"Optimal input {self.agent_id}: {optimal_input}")
-        print(f"optimal_constraints {self.agent_id}: {sol['g']}")
+        # print(f"Optimal input {self.agent_id}: {optimal_input}")
+        # print(f"optimal_constraints {self.agent_id}: {sol['g']}")
     
         # Publish the velocity command
         linear_velocity = optimal_input[:2]
         clipped_linear_velocity = np.clip(linear_velocity, -self.max_velocity, self.max_velocity)
         self.vel_cmd_msg.linear.x = clipped_linear_velocity[0][0]
         self.vel_cmd_msg.linear.y = clipped_linear_velocity[1][0]
-
-
-        try:
-            # Get transform from mocap frame to agent frame
-            transform = self.tf_buffer.lookup_transform("world", "nexus_"+self.agent_name, Time())
-            vel_cmd_msg_transformed = self.transform_twist(self.vel_cmd_msg, transform)
-            print(f"vel_cmd_transformed {self.agent_id}: {vel_cmd_msg_transformed.linear.x}, {vel_cmd_msg_transformed.linear.y}")
-            self.vel_pub.publish(vel_cmd_msg_transformed)
-        except tf2_ros.TransformException as e:
-            self.get_logger().error(f"Transform error: {e}")
-
-
-
-
+       
+        # commands already given in world frame
+        # print(f"vel_cmd_transformed {self.agent_id}: {self.vel_cmd_msg.linear.x}, {self.vel_cmd_msg.linear.y}")
+        # print("=============================================")
+        self.vel_pub.publish(self.vel_cmd_msg)
+        
 
 
     def transform_twist(self, twist=Twist, transform_stamped=TransformStamped) -> Twist:
@@ -382,39 +380,11 @@ class Controller(Node):
         return new_twist
 
 
-    # ================= Callbacks =====================
-    def pose_callback(self, msg):
-        """
-        Callback function for the agent's pose.
 
-        Args:
-            msg (ModelStates): Contains the names, poses, and twists of all the agents.
 
-        Note:
-            This function is used to get the agent pose from the mocap system and publish it to the agent_pose topic for easy access.
-         
-        """
-        names = msg.name  # List of agent names
-        poses = msg.pose  # List of Pose objects corresponding to the agents
-        position_msg = PoseStamped() # Extracted position of the agent
-        
-        # Find the index of the agent in the names list
-        try:
-            agent_index = names.index(self.agent_name)
-        except ValueError:
-            self.get_logger().warn(f"{self.agent_name} not found in the names list")
-            return
-        
-        # Get the corresponding pose for the agent
-        agent_pose = poses[agent_index]
-        # position_msg.header.frame_id = str(names[agent_index])
-        position_msg.header.stamp = self.get_clock().now().to_msg()
-        position_msg.pose.position.x = agent_pose.position.x
-        position_msg.pose.position.y = agent_pose.position.y
-        
-        # Publish the agent's position
-        self.agent_pose_pub.publish(position_msg)
-    
+
+
+    #  ==================== Callbacks ====================
 
     def other_agent_pose_callback(self, msg, agent_id):
         """
@@ -428,7 +398,6 @@ class Controller(Node):
 
         state = np.array([msg.pose.position.x, msg.pose.position.y])
         self.agents[agent_id] = Agent(id=agent_id, initial_state=state)
-        self.last_pose_time = self.get_clock().now().to_msg()
 
 
 
@@ -439,6 +408,7 @@ class Controller(Node):
         Args:
             msg (Int32): The total number of tasks.
         """
+        print(f"Total tasks: {msg.data}")
         self.total_tasks = msg.data
 
 
@@ -449,7 +419,7 @@ class Controller(Node):
         Args:
             msg (TaskMsg): The task message.
         """
-        # print("Subscribed to task ")
+        print(f"Task received: {msg}")
         self.task_msg_list.append(msg)
 
 
@@ -458,6 +428,7 @@ class Controller(Node):
         if len(self.task_msg_list) >= self.total_tasks:
             self.task_check_timer.cancel()  # Stop the timer if all tasks are received
             self.get_logger().info("All tasks received.")
+            self.initial_time,_ = self.get_clock().now().seconds_nanoseconds()
             
             # Create the tasks and the barriers
             self.barriers = self.create_barriers(self.task_msg_list)
@@ -472,9 +443,20 @@ class Controller(Node):
 
     def transform_timer_callback(self):
         try:
-            trans = self.tf_buffer.can_transform("world", "nexus_"+self.agent_name, Time())
-            self.get_logger().info('Found transform')
-            self.check_transform_timer.cancel() # Stop the timer if the transform is found
+            trans = self.tf_buffer.lookup_transform("world", "nexus_"+self.agent_name, Time())
+            # update self tranform
+            self.latest_self_transform = trans
+            # print(f"can transform {self.tf_buffer.can_transform('world', 'nexus_'+self.agent_name, Time())}")
+
+            # Send your position to the other agents
+            position_msg = PoseStamped()
+            position_msg.header.stamp = self.get_clock().now().to_msg()
+            position_msg.pose.position.x = trans.transform.translation.x
+            position_msg.pose.position.y = trans.transform.translation.y
+            self.agent_pose_pub.publish(position_msg)
+
+            # self.get_logger().info('Found transform')
+            # self.check_transform_timer.cancel() # Stop the timer if the transform is found
         except LookupException as e:
             self.get_logger().error('failed to get transform {} \n'.format(repr(e)))
 
