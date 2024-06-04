@@ -54,10 +54,7 @@ def generate_launch_description():
     ld.add_action(gazebo)
 
 
-    # Define list to store controller nodes for later sequential launching
-    controller_nodes = []
 
-    # Spawn robots into Gazebo and start their controller nodes
     for agent_name, pose in initial_conditions['initial_conditions'].items():
         # Use xacro to process the file with the dynamic namespace mapping for each robot
         xacro_file = os.path.join(get_package_share_directory(pkg_name_desc), robot_xacro_subpath)
@@ -95,22 +92,7 @@ def generate_launch_description():
         )
         ld.add_action(node_robot_state_publisher)
 
-    #     # Create controller nodes
-    #     controller_node = Node(
-    #         package='stl_task_decomposition',
-    #         executable='controller.py',
-    #         name=f'{agent_name}',
-    #         output='screen',
-    #         emulate_tty= True,
-    #         parameters=[{'robot_name': agent_name, 'num_robots': num_agents}],
-    #     )
-    #     controller_nodes.append(controller_node)
-
-    # # Add all controller nodes to the launch description
-    # for controller_node in controller_nodes:
-    #     ld.add_action(controller_node)
-
-    # Start the manager node after all controller nodes have been launched
+    # Launch the manager node
     manager_node = Node(
         package='stl_task_decomposition',
         executable='manager_node.py',

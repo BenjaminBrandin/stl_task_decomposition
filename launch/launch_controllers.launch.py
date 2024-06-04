@@ -3,15 +3,11 @@ import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument
 
-import xacro
 
 def generate_launch_description():
-    # Specify the name of the package and path to xacro file within the package
+    # Specify the name of the package
     pkg_name = 'stl_task_decomposition'
     config_folder_subpath = "config"
     
@@ -24,7 +20,6 @@ def generate_launch_description():
     
     # Create the launch description and populate
     ld = LaunchDescription()
-
 
     # Declare the robot_name and num_agents parameters
     num_agents_arg = DeclareLaunchArgument('num_agents', default_value=str(num_agents), description='Number of agents')
@@ -44,7 +39,7 @@ def generate_launch_description():
         controller_node = Node(
             package='stl_task_decomposition',
             executable='controller.py',
-            name=f'{agent_name}',
+            name=f'controller_{agent_name}',
             output='screen',
             emulate_tty= True,
             parameters=[{'robot_name': agent_name, 'num_robots': num_agents}],
@@ -54,15 +49,5 @@ def generate_launch_description():
     # Add all controller nodes to the launch description
     for controller_node in controller_nodes:
         ld.add_action(controller_node)
-
-    # Start the manager node after all controller nodes have been launched
-    # manager_node = Node(
-    #     package='stl_task_decomposition',
-    #     executable='manager_node.py',
-    #     name='manager_node',
-    #     output='screen',
-    #     emulate_tty= True,
-    # )
-    # ld.add_action(manager_node)
 
     return ld

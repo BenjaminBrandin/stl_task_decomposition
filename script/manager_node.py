@@ -2,7 +2,6 @@
 import os
 import yaml
 import rclpy
-import time
 from rclpy.node import Node
 import numpy as np
 import networkx as nx
@@ -51,6 +50,7 @@ class Manager(Node):
         self.task_pub = self.create_publisher(TaskMsg, "/tasks", 10)
         self.numOfTasks_pub = self.create_publisher(Int32, "/numOfTasks", 10)
 
+        # setup subscribers
         self.create_subscription(Bool, "/controller_ready", self.controller_ready_callback, 10)
 
         # Define package names and subpaths
@@ -70,10 +70,9 @@ class Manager(Node):
         with open(tasks_yaml_path, 'r') as file:
             self.tasks = yaml.safe_load(file)
 
-        # Initial states of the robots and creating the robots
+        # Create the Agent objects and store them in a dictionary
         start_positions = {}
         initial_conditions = self.start_pos['initial_conditions']
-        
         for agent_name, state in initial_conditions.items():
             agent_id = int(agent_name.replace('agent', ''))
             position = np.array([state['x'], state['y']])
@@ -91,12 +90,11 @@ class Manager(Node):
         # Fill the task graph with the tasks and decompose the edges that are not communicative
         self.update_graph()
         computeNewTaskGraph(self.task_graph, self.comm_graph, task_edges, start_position=start_positions)
+        # self.print_tasks()    # Uncomment to print the tasks
+        # self.plot_graph()     # Uncomment to plot the graphs
 
-        
-        
-        # publish the tasks
-        # self.print_tasks()
-        # self.plot_graph()
+
+        # Wait for the controllers to be ready
         self.controller_timer = self.create_timer(0.33, self.wait_for_controller_callback)
         
 
@@ -131,7 +129,6 @@ class Manager(Node):
             string temp_op
             int32[] interval
             int32[] involved_agents
-            bool communicate 
         """
         # Create the predicate based on the type of the task
         if task_info["TYPE"] == "go_to_goal_predicate_2d":
@@ -206,7 +203,6 @@ class Manager(Node):
 
                 # Then publish the message
                 self.task_pub.publish(task_message)
-                # print(f"Published task: {task_message}")
 
 
     def publish_numOfTask(self):
@@ -214,14 +210,14 @@ class Manager(Node):
         total = Int32()
         total.data = self.total_tasks
         self.numOfTasks_pub.publish(total)
-        # print(f'Number of tasks: {total.data}')
+
 
 
 
     #  ==================== Callbacks ====================
     def controller_ready_callback(self, msg):
         self.bool_msg = msg.data
-        # print(f"Controller ready: {self.bool_msg}")
+        print(f"Controller ready: {self.bool_msg}")
 
 
     def wait_for_controller_callback(self):
@@ -230,8 +226,8 @@ class Manager(Node):
             self.publish_tasks()        
             self.publish_numOfTask()
         else:
-            # print("Waiting for the controller to be ready...")
             pass
+
 
 
 def main(args=None):

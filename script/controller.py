@@ -1,22 +1,17 @@
 #!/usr/bin/env python3
-import sys
-import copy
 import rclpy
 from rclpy.node import Node
-from rclpy.time import Time, Duration
+from rclpy.time import Time
 import tf2_ros
-import time
 from functools import partial
 import numpy as np
 import casadi as ca
-import tf2_geometry_msgs
 from typing import List, Dict
 from std_msgs.msg import Int32, Bool
 import casadi.tools as ca_tools
 from collections import defaultdict
 from stl_decomposition_msgs.msg import TaskMsg
-from gazebo_msgs.msg import ModelStates
-from geometry_msgs.msg import Twist, PoseStamped, TransformStamped, Vector3Stamped
+from geometry_msgs.msg import Twist, PoseStamped, TransformStamped
 from .builders import (BarrierFunction, Agent, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, 
                       create_barrier_from_task, go_to_goal_predicate_2d, formation_predicate, 
                       epsilon_position_closeness_predicate, conjunction_of_barriers, collision_avoidance_predicate)
@@ -42,7 +37,6 @@ class Controller(Node):
         agent_pose             (PoseStamped)              : The current pose of the agent.
         agent_name             (str)                      : The name of the agent.
         agent_id               (int)                      : The ID of the agent.
-        last_pose_time         (rospy.Time)               : The timestamp of the last received agent pose.
         agents                 (dict)                     : A dictionary containing all agents and their states.
         total_agents           (int)                      : The total number of agents in the environment.
         barriers               (list)                     : A list of barrier functions used to construct the constraints of the optimization problem.
@@ -78,7 +72,6 @@ class Controller(Node):
         self.nabla_inputs = []
         self.initial_time = 0
 
-
         # parameters declaration
         self.declare_parameter('robot_name', rclpy.Parameter.Type.STRING)
         self.declare_parameter('num_robots', rclpy.Parameter.Type.INTEGER)
@@ -92,7 +85,7 @@ class Controller(Node):
 
         # Barriers and tasks
         self.barriers = []
-        self.task = TaskMsg()
+        self.task = TaskMsg()   # Custom message type from stl_decomposition_msgs
         self.task_msg_list = []
         self.total_tasks = float('inf')
 
@@ -237,7 +230,7 @@ class Controller(Node):
         cost = self.input_vector.T @ self.input_vector
         for id,slack in self.slack_variables.items():
             if id == self.agent_id:
-                cost += 1000* slack**2 # 1000 makes the agent prioritize its own tasks and almost ignore the other agents
+                cost += 1000* slack**2 
             else:
                 cost += 10* slack**2
 
@@ -304,38 +297,28 @@ class Controller(Node):
 
     def control_loop(self):
         """This is the main control loop of the controller. It calculates the optimal input and publishes the velocity command to the cmd_vel topic."""
-        # print("=============================================")
-            # Fill the structure with the current values
+        # Fill the structure with the current state and time
         current_parameters = self.parameters(0)
-        time_in_sec,time_in_nano = self.get_clock().now().seconds_nanoseconds()
-        # print(time_in_sec)
+        time_in_sec,_ = self.get_clock().now().seconds_nanoseconds()
         current_parameters["time"] = ca.vertcat(time_in_sec-self.initial_time)
-        # print(f"time: {current_parameters['time']}")
         for id in self.agents.keys():
             current_parameters[f'state_{id}'] = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
-            # print(f"state of agent{id}: {self.agents[id].state[0]}, {self.agents[id].state[1]}")
 
-
-        # Calculate the gradient values
+        # Calculate the gradient values to check for convergence
         nabla_list = []
         inputs = {}
         for i, nabla_fun in enumerate(self.nabla_funs):
             inputs = {key: current_parameters[key] for key in self.nabla_inputs[i].keys()}
             nabla_val = nabla_fun.call(inputs)["value"]
             nabla_list.append(ca.norm_2(nabla_val))
-        # print(f"nabla_list {self.agent_id}: {nabla_list}")
+
 
         # Solve the optimization problem 
         if any(ca.norm_2(val) < 1e-10 for val in nabla_list):
-            # optimal_input = ca.MX([0, 0, 0])
-            # print("nambla is zero")
             optimal_input = ca.MX.zeros(2 + len(self.slack_variables))
         else:
             sol = self.solver(p=current_parameters, ubg=0)
             optimal_input = sol['x']
-
-        # print(f"Optimal input {self.agent_id}: {optimal_input}")
-        # print(f"optimal_constraints {self.agent_id}: {sol['g']}")
     
         # Publish the velocity command
         linear_velocity = optimal_input[:2]
@@ -343,45 +326,8 @@ class Controller(Node):
         self.vel_cmd_msg.linear.x = clipped_linear_velocity[0][0]
         self.vel_cmd_msg.linear.y = clipped_linear_velocity[1][0]
        
-        # commands already given in world frame
-        # print(f"vel_cmd_transformed {self.agent_id}: {self.vel_cmd_msg.linear.x}, {self.vel_cmd_msg.linear.y}")
-        # print("=============================================")
         self.vel_pub.publish(self.vel_cmd_msg)
         
-
-
-    def transform_twist(self, twist=Twist, transform_stamped=TransformStamped) -> Twist:
-        """
-        Transforms the twist from one frame to another frame.
-        
-        Args:
-            twist             (Twist)            : The cmd_vel message to be transformed.
-            transform_stamped (TransformStamped) : The transform between the frames.
-
-        Returns:
-            new_twist (Twist) : The transformed cmd_vel message.
-        """
-        transform_stamped_ = copy.deepcopy(transform_stamped)
-        # Inverse real-part of quaternion to inverse rotation
-        transform_stamped_.transform.rotation.w = - transform_stamped_.transform.rotation.w
-
-        twist_vel = Vector3Stamped()
-        twist_rot = Vector3Stamped()
-        twist_vel.vector = twist.linear
-        twist_rot.vector = twist.angular
-        out_vel = tf2_geometry_msgs.do_transform_vector3(twist_vel, transform_stamped_)
-        out_rot = tf2_geometry_msgs.do_transform_vector3(twist_rot, transform_stamped_)
-
-        new_twist = Twist()
-        new_twist.linear = out_vel.vector
-        new_twist.angular = out_rot.vector
-
-
-        return new_twist
-
-
-
-
 
 
     #  ==================== Callbacks ====================
@@ -395,7 +341,6 @@ class Controller(Node):
             agent_id (int): The ID of the agent extracted from the topic name.
 
         """
-
         state = np.array([msg.pose.position.x, msg.pose.position.y])
         self.agents[agent_id] = Agent(id=agent_id, initial_state=state)
 
@@ -408,7 +353,6 @@ class Controller(Node):
         Args:
             msg (Int32): The total number of tasks.
         """
-        print(f"Total tasks: {msg.data}")
         self.total_tasks = msg.data
 
 
@@ -419,7 +363,6 @@ class Controller(Node):
         Args:
             msg (TaskMsg): The task message.
         """
-        print(f"Task received: {msg}")
         self.task_msg_list.append(msg)
 
 
@@ -438,7 +381,6 @@ class Controller(Node):
             ready = Bool()
             ready.data = True
             self.ready_pub.publish(ready)
-            # self.get_logger().info(f"Waiting for all tasks to be received. Received {len(self.task_msg_list)} out of {self.total_tasks}")
 
 
     def transform_timer_callback(self):
@@ -446,7 +388,6 @@ class Controller(Node):
             trans = self.tf_buffer.lookup_transform("world", "nexus_"+self.agent_name, Time())
             # update self tranform
             self.latest_self_transform = trans
-            # print(f"can transform {self.tf_buffer.can_transform('world', 'nexus_'+self.agent_name, Time())}")
 
             # Send your position to the other agents
             position_msg = PoseStamped()
@@ -455,14 +396,11 @@ class Controller(Node):
             position_msg.pose.position.y = trans.transform.translation.y
             self.agent_pose_pub.publish(position_msg)
 
-            # self.get_logger().info('Found transform')
-            # self.check_transform_timer.cancel() # Stop the timer if the transform is found
         except LookupException as e:
             self.get_logger().error('failed to get transform {} \n'.format(repr(e)))
 
 
     
-
 
 def main(args=None):
     rclpy.init(args=args)
