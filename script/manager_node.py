@@ -2,19 +2,23 @@
 import os
 import yaml
 import rclpy
+import multiprocessing as mp
 from rclpy.node import Node
 import numpy as np
 import networkx as nx
+from   networkx import diameter as net_diameter
 import casadi as ca
+from typing import Dict
 from std_msgs.msg import Int32, Bool
 import matplotlib.pyplot as plt
 from stl_decomposition_msgs.msg import TaskMsg
 from ament_index_python.packages import get_package_share_directory
 from .decomposition_module import computeNewTaskGraph
 from .graph_module import create_communication_graph_from_states, create_task_graph_from_edges
-from .builders import (Agent, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, go_to_goal_predicate_2d, 
+from .builders import (Agent, LeadershipToken, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, go_to_goal_predicate_2d, 
                       formation_predicate, epsilon_position_closeness_predicate, collision_avoidance_predicate)
 
+Ti = Dict[int,LeadershipToken] # token set fo a single agent
 
 class Manager(Node):
 
@@ -89,13 +93,38 @@ class Manager(Node):
 
         # Fill the task graph with the tasks and decompose the edges that are not communicative
         self.update_graph()
-        computeNewTaskGraph(self.task_graph, self.comm_graph, task_edges, start_position=start_positions)
+
+
+        # Change to use nx.random_spanning_tree(g) instead of nx.minimum_spanning_tree(g)
+        # create a function that find the best random spanning tree based on the task graph
+        self.min_span_tree = nx.minimum_spanning_tree(self.comm_graph)
+        sorted_edges = sorted(self.min_span_tree.edges(data=True))
+
+
+
+        # add tolken functions
+        tolkens = self.token_passing_algorithm(self.comm_graph)
+        print("==============================")
+        for unique_identifier,Ti in tolkens.items() :
+            print(f"Agent {unique_identifier} has tokens:")
+            for j,token in Ti.items() :
+                print(f"tau_{unique_identifier,j} = {token}")
+        print("==============================")
+
+
+
+
+        # computeNewTaskGraph(self.task_graph, self.comm_graph, task_edges, start_position=start_positions)
+        # computeNewTaskGraph(self.task_graph, self.min_span_tree, task_edges, start_position=start_positions)
         # self.print_tasks()    # Uncomment to print the tasks
         # self.plot_graph()     # Uncomment to plot the graphs
 
 
+
+
+
         # Wait for the controllers to be ready
-        self.controller_timer = self.create_timer(0.33, self.wait_for_controller_callback)
+        # self.controller_timer = self.create_timer(0.33, self.wait_for_controller_callback)
         
 
     def update_graph(self):
@@ -210,6 +239,101 @@ class Manager(Node):
         total = Int32()
         total.data = self.total_tasks
         self.numOfTasks_pub.publish(total)
+
+
+
+    # function that publish the information about the agents tolkens for each edge
+    
+    def print_tokens(self, tokens:Dict[int,Ti]) :
+        for unique_identifier,Ti in tokens.items() :
+            print(f"Agent {unique_identifier} has tokens:")
+            for j,token in Ti.items() :
+                print(f"tau_{unique_identifier,j} = {token}")
+
+    def update_tokens(self, unique_identifier : int,tokens_dictionary : Dict[int,Ti]) :
+        
+        Ti = tokens_dictionary[unique_identifier]
+        
+        for j in Ti.keys() :
+            if len(Ti.keys()) == 1  : #edge leader
+                Ti[j] = LeadershipToken.LEADER # set agent as edge leader
+                
+            else :   
+                Tj = tokens_dictionary[j]
+                if Tj[unique_identifier] == LeadershipToken.LEADER :
+                    Ti[j] = LeadershipToken.FOLLOWER # set agent as edge follower
+        
+        count = 0
+        for j,token in Ti.items():
+            if token == LeadershipToken.UNDEFINED :
+                count+= 1
+                index = j
+        if count == 1 : # there is only one undecided edge
+            Ti[index] = LeadershipToken.LEADER # set agent as edge leader
+
+
+    def any_undefined(self, Ti:Dict[int,LeadershipToken]) -> bool :
+        for token in Ti.values():
+            if token == LeadershipToken.UNDEFINED :
+                return True
+        return False
+
+
+    def token_passing_algorithm(self, graph:nx.Graph):
+        """
+        implements token passing algorithm
+        """
+        # 0 undefined
+        # 1 leader 
+        # 2 follower
+        tokens_dictionary = {}
+        # parallelized version (the overhead from to little agents will not be worth it)
+        
+        if len(graph.nodes()) >= 10 :
+            agents = list(graph.nodes())
+            manager = mp.Manager()
+            
+            for agent in agents :
+                neighbours = [unique_identifier for unique_identifier in graph.neighbors(agent) if unique_identifier!=agent] # eliminate self loops
+                Ti = manager.dict({unique_identifier:LeadershipToken.UNDEFINED for unique_identifier in neighbours})
+                tokens_dictionary[agent] = Ti
+            
+            tokens_dictionary = manager.dict(tokens_dictionary)
+            diameter = net_diameter(graph)
+        
+            for round in range(int(np.ceil(diameter/2))+1) :
+                with mp.Pool(6) as pool:
+                    pool.starmap(self.update_tokens, [(agent, tokens_dictionary) for agent in agents])
+            
+            
+            for Ti in tokens_dictionary.values() :
+                if self.any_undefined(Ti) :
+                    self.print_tokens(tokens_dictionary)
+                    raise RuntimeError("Error: token passing algorithm did not converge")
+    
+            
+        # serial version
+        else :
+            agents = list(graph.nodes())
+            
+            for agent in agents :
+                Ti = {unique_identifier:LeadershipToken.UNDEFINED for unique_identifier in graph.neighbors(agent) if unique_identifier!=agent}
+                tokens_dictionary[agent] = Ti
+            
+            diameter = net_diameter(graph)
+            
+            for round in range(int(np.ceil(diameter/2))+1) :
+                for agent in agents :
+                    self.update_tokens(agent,tokens_dictionary)
+                    
+            
+            for Ti in tokens_dictionary.values() :
+                if self.any_undefined(Ti) :
+                    self.print_tokens(tokens_dictionary)
+                    raise RuntimeError("Error: token passing algorithm did not converge")
+                
+            
+        return tokens_dictionary
 
 
 

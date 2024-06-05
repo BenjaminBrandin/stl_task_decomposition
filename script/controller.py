@@ -262,6 +262,8 @@ class Controller(Node):
                     neighbour_id = barrier.contributing_agents[0]
             else :
                 neighbour_id = self.agent_id
+            
+            # check if neighbour is a leading agent for the edge
 
             # Create the named inputs for the barrier function
             named_inputs = {"state_"+str(id): self.parameters["state_"+str(id)] for id in barrier.contributing_agents}
@@ -285,8 +287,9 @@ class Controller(Node):
             else:
                 slack = ca.MX.sym(f"slack", 1)
                 self.slack_variables[neighbour_id] = slack  
-                load_sharing = 0.1
+                load_sharing = 1/2 # 1/len(barrier.contributing_agents)
 
+            # add if statement to check if the agent is the leading agent
             barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b + slack))
             constraints.append(barrier_constraint)
             self.nabla_funs.append(nabla_xi_fun)

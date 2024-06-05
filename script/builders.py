@@ -26,6 +26,7 @@ SOFTWARE.
 import itertools
 import numpy as np
 import casadi as ca
+from enum import Enum
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from typing import Tuple, Dict, List, TypeVar, Optional, Union
@@ -142,6 +143,10 @@ class Agent:
         self.symbolic_state = ca.MX.sym(f'state_{id}', 2)
         self.state = initial_state
 
+class LeadershipToken(Enum) :
+    LEADER    = 1
+    FOLLOWER  = 2
+    UNDEFINED = 0
 
 class PredicateFunction :
     """
