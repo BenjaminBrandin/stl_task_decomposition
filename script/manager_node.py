@@ -11,7 +11,7 @@ import casadi as ca
 from typing import Dict
 from std_msgs.msg import Int32, Bool
 import matplotlib.pyplot as plt
-from stl_decomposition_msgs.msg import TaskMsg
+from stl_decomposition_msgs.msg import TaskMsg, EdgeLeaderShip, LeaderShipTokens
 from ament_index_python.packages import get_package_share_directory
 from .decomposition_module import computeNewTaskGraph
 from .graph_module import create_communication_graph_from_states, create_task_graph_from_edges
@@ -53,6 +53,7 @@ class Manager(Node):
         # setup publishers
         self.task_pub = self.create_publisher(TaskMsg, "/tasks", 10)
         self.numOfTasks_pub = self.create_publisher(Int32, "/numOfTasks", 10)
+        self.tokens_pub = self.create_publisher(LeaderShipTokens, "/tokens", 10)
 
         # setup subscribers
         self.create_subscription(Bool, "/controller_ready", self.controller_ready_callback, 10)
@@ -97,35 +98,27 @@ class Manager(Node):
 
         # Change to use nx.random_spanning_tree(g) instead of nx.minimum_spanning_tree(g)
         # create a function that find the best random spanning tree based on the task graph
-        self.min_span_tree = nx.minimum_spanning_tree(self.comm_graph)
-        sorted_edges = sorted(self.min_span_tree.edges(data=True))
+        self.comm_graph: nx.Graph = nx.minimum_spanning_tree(self.comm_graph)
+
+        # add the self loops again since the minimum spanning tree does not include them
+        for state in start_positions.keys():
+            self.comm_graph.add_edge(state, state)
 
 
+        self.tokens = self.token_passing_algorithm(self.comm_graph)
 
-        # add tolken functions
-        tolkens = self.token_passing_algorithm(self.comm_graph)
-        print("==============================")
-        for unique_identifier,Ti in tolkens.items() :
-            print(f"Agent {unique_identifier} has tokens:")
-            for j,token in Ti.items() :
-                print(f"tau_{unique_identifier,j} = {token}")
-        print("==============================")
-
-
-
-
-        # computeNewTaskGraph(self.task_graph, self.comm_graph, task_edges, start_position=start_positions)
-        # computeNewTaskGraph(self.task_graph, self.min_span_tree, task_edges, start_position=start_positions)
+        computeNewTaskGraph(self.task_graph, self.comm_graph, task_edges, start_position=start_positions)
         # self.print_tasks()    # Uncomment to print the tasks
         # self.plot_graph()     # Uncomment to plot the graphs
 
 
-
-
-
         # Wait for the controllers to be ready
-        # self.controller_timer = self.create_timer(0.33, self.wait_for_controller_callback)
+        self.controller_timer = self.create_timer(0.33, self.wait_for_controller_callback)
         
+
+
+
+
 
     def update_graph(self):
         """Adds the tasks to the edges of the task graph."""
@@ -211,38 +204,9 @@ class Manager(Node):
                 print(f"INTERVAL: {task.time_interval.aslist}")
                 print(f"INVOLVED_AGENTS: {task.contributing_agents}")
                 print("-----------------------------------")
-        
-        
-
-    def publish_tasks(self):
-        """Publishes the tasks to the topic tasks."""
-        tasks: list[StlTask] = []
-        for i,j,attr in self.task_graph.edges(data=True):
-            tasks = attr["container"].task_list
-            for task in tasks:
-                self.total_tasks += 1
-                task_message = TaskMsg()
-                task_message.edge = list(task.edgeTuple)
-                task_message.type = task.type                               
-                task_message.center = task.center                           
-                task_message.epsilon = task.epsilon                         
-                task_message.temp_op = task.temporal_type
-                task_message.interval = task.time_interval.aslist
-                task_message.involved_agents = task.contributing_agents                            
-
-                # Then publish the message
-                self.task_pub.publish(task_message)
 
 
-    def publish_numOfTask(self):
-        """Publishes the number of tasks to the topic numOfTasks."""
-        total = Int32()
-        total.data = self.total_tasks
-        self.numOfTasks_pub.publish(total)
-
-
-
-    # function that publish the information about the agents tolkens for each edge
+    
     
     def print_tokens(self, tokens:Dict[int,Ti]) :
         for unique_identifier,Ti in tokens.items() :
@@ -337,16 +301,59 @@ class Manager(Node):
 
 
 
+    # ==================== Publishers ====================
+    def publish_tokens(self):
+            """Publishes the tokens to the topic tokens."""
+            LeadershipTokens_msg = LeaderShipTokens()
+            for i,Ti in self.tokens.items():
+                for j,token in Ti.items():
+                    EdgeLeaderShip_msg = EdgeLeaderShip()
+                    EdgeLeaderShip_msg.i = i
+                    EdgeLeaderShip_msg.j = j
+                    if token == LeadershipToken.LEADER:
+                        EdgeLeaderShip_msg.leader = i
+                    elif token == LeadershipToken.FOLLOWER:
+                        EdgeLeaderShip_msg.leader = j
+                    LeadershipTokens_msg.list.append(EdgeLeaderShip_msg)
+            self.tokens_pub.publish(LeadershipTokens_msg)
+
+
+    def publish_tasks(self):
+        """Publishes the tasks to the topic tasks."""
+        tasks: list[StlTask] = []
+        for i,j,attr in self.task_graph.edges(data=True):
+            tasks = attr["container"].task_list
+            for task in tasks:
+                self.total_tasks += 1
+                task_message = TaskMsg()
+                task_message.edge = list(task.edgeTuple)
+                task_message.type = task.type                               
+                task_message.center = task.center                           
+                task_message.epsilon = task.epsilon                         
+                task_message.temp_op = task.temporal_type
+                task_message.interval = task.time_interval.aslist
+                task_message.involved_agents = task.contributing_agents                            
+
+                # Then publish the message
+                self.task_pub.publish(task_message)
+
+
+    def publish_numOfTask(self):
+        """Publishes the number of tasks to the topic numOfTasks."""
+        total = Int32()
+        total.data = self.total_tasks
+        self.numOfTasks_pub.publish(total)
+
 
     #  ==================== Callbacks ====================
     def controller_ready_callback(self, msg):
         self.bool_msg = msg.data
-        print(f"Controller ready: {self.bool_msg}")
 
 
     def wait_for_controller_callback(self):
         if self.bool_msg:
             self.controller_timer.cancel()
+            self.publish_tokens()
             self.publish_tasks()        
             self.publish_numOfTask()
         else:

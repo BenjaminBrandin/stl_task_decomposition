@@ -688,6 +688,10 @@ def computeNewTaskGraph(task_graph:nx.Graph, comm_graph:nx.Graph, task_edges:Lis
         for i,j,attr in optimisedEdges:
             newFormulasCount += len([formula for formula in attr.task_list if formula.isParametric])
         
+
+
+
+
         print("-----------------------------------------")   
         print("Internal Report")   
         print("-----------------------------------------")   
@@ -696,6 +700,8 @@ def computeNewTaskGraph(task_graph:nx.Graph, comm_graph:nx.Graph, task_edges:Lis
         for path,formulas in decompositionSolved :   
             print("path: ",path)
             for formula in formulas:
+                formula.center  = [float(solution.value(formula.centerVar)[0]),float(solution.value(formula.centerVar)[1])]
+                formula.epsilon = min(solution.value(formula.nuVar))/2
                 print("====================================") 
                 print(f"EDGE: {formula.edgeTuple}")
                 print(f"TYPE: {formula.type}")

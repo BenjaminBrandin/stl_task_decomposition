@@ -251,10 +251,21 @@ class PredicateFunction :
     def epsilon(self) -> float:
         """Get the threshold value."""
         return self._epsilon
+    @epsilon.setter
+    def epsilon(self, epsilon: float) -> None:
+        """Set the threshold value."""
+        self._epsilon = epsilon
+
     @property
     def center(self) -> List[float]:
         """Get the center of the predicate function."""
         return self._center
+    
+    @center.setter
+    def center(self, center: List[float]) -> None:
+        """Set the center of the predicate function."""
+        self._center = center
+
     @property
     def stateSpaceDimension(self) -> int:
         """Get the dimension of the state space."""
@@ -941,6 +952,16 @@ class StlTask:
     def center(self) -> List[float]:
         """Get the center of the predicate function."""
         return self._predicate.center
+    
+    @center.setter
+    def center(self, center: List[float]) -> None:
+        """Set the center of the predicate function."""
+        self._predicate.center = center
+    @epsilon.setter
+    def epsilon(self, epsilon: float) -> None:
+        """Set the threshold value."""
+        self._predicate.epsilon = epsilon
+
     @property
     def temporal_operator(self) -> TemporalOperator:
         """Get the temporal operator."""

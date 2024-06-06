@@ -1,8 +1,8 @@
 TASK_1:
   EDGE: [1, 2]
   TYPE: "formation_predicate"
-  CENTER: [-1.0, 1.0]
-  EPSILON: 2.0
+  CENTER: [-1.0, -1.0]
+  EPSILON: 0.5
   TEMP_OP: "AlwaysOperator"
   INTERVAL: [20, 40]
   INVOLVED_AGENTS: [1, 2]
@@ -19,7 +19,7 @@ TASK_2:
 TASK_3:
   EDGE: [1, 4]
   TYPE: "epsilon_position_closeness_predicate"
-  CENTER: [3.0, 1.0]
+  CENTER: [0.0, 0.0]
   EPSILON: 2.0
   TEMP_OP: "AlwaysOperator"
   INTERVAL: [30, 40]

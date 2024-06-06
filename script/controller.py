@@ -10,7 +10,7 @@ from typing import List, Dict
 from std_msgs.msg import Int32, Bool
 import casadi.tools as ca_tools
 from collections import defaultdict
-from stl_decomposition_msgs.msg import TaskMsg
+from stl_decomposition_msgs.msg import TaskMsg, EdgeLeaderShip, LeaderShipTokens
 from geometry_msgs.msg import Twist, PoseStamped, TransformStamped
 from .builders import (BarrierFunction, Agent, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, 
                       create_barrier_from_task, go_to_goal_predicate_2d, formation_predicate, 
@@ -68,6 +68,7 @@ class Controller(Node):
         self.scale_factor = 3
         self.dummy_scalar = ca.MX.sym('dummy_scalar', 1)
         self.alpha_fun = ca.Function('alpha_fun', [self.dummy_scalar], [self.scale_factor * self.dummy_scalar])
+        self.barrier_func = []
         self.nabla_funs = []
         self.nabla_inputs = []
         self.initial_time = 0
@@ -82,6 +83,7 @@ class Controller(Node):
         self.agents = {} # position of all the agents in the system including self agent
         self.latest_self_transform = TransformStamped()
         self.total_agents = self.get_parameter('num_robots').get_parameter_value().integer_value
+        self.LeaderShipTokens_list = []
 
         # Barriers and tasks
         self.barriers = []
@@ -101,6 +103,7 @@ class Controller(Node):
         # Setup subscribers
         self.create_subscription(Int32, "/numOfTasks", self.numOfTasks_callback, 10)
         self.create_subscription(TaskMsg, "/tasks", self.task_callback, 10)
+        self.create_subscription(LeaderShipTokens, "/tokens", self.tokens_callback, 10)
         for id in range(1, self.total_agents + 1):
             self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", 
                                     partial(self.other_agent_pose_callback, agent_id=id), 10)
@@ -263,7 +266,6 @@ class Controller(Node):
             else :
                 neighbour_id = self.agent_id
             
-            # check if neighbour is a leading agent for the edge
 
             # Create the named inputs for the barrier function
             named_inputs = {"state_"+str(id): self.parameters["state_"+str(id)] for id in barrier.contributing_agents}
@@ -279,19 +281,24 @@ class Controller(Node):
             dbdt     = partial_time_derivative_fun.call(named_inputs)["value"]
             alpha_b  = barrier.associated_alpha_function(barrier_fun.call(named_inputs)["value"])
 
-            # Create load sharing for different constraints
-            if neighbour_id == self.agent_id:
-                slack = ca.MX.sym(f"slack", 1)
-                self.slack_variables[self.agent_id] = slack
-                load_sharing = 1
-            else:
-                slack = ca.MX.sym(f"slack", 1)
-                self.slack_variables[neighbour_id] = slack  
-                load_sharing = 1/2 # 1/len(barrier.contributing_agents)
 
-            # add if statement to check if the agent is the leading agent
-            barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b + slack))
+            # check edge for leading agent
+            edge = next((edgeleadership for edgeleadership in self.LeaderShipTokens_list if edgeleadership[:2] == [self.agent_id, neighbour_id]), None)
+
+            if edge is not None:
+                if edge[-1] == self.agent_id:
+                    load_sharing = 1
+                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b))
+                elif edge[-1] == neighbour_id:
+                    load_sharing = 1/2  # 1/len(barrier.contributing_agents)
+                    slack = ca.MX.sym(f"slack", 1)
+                    self.slack_variables[neighbour_id] = slack
+                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b + slack))     
+            else:
+                raise ValueError(f"Could not find the edge leadership token for the edge {self.agent_id} and {neighbour_id}")
+
             constraints.append(barrier_constraint)
+            self.barrier_func.append(barrier_fun)
             self.nabla_funs.append(nabla_xi_fun)
             self.nabla_inputs.append(named_inputs)
 
@@ -312,6 +319,7 @@ class Controller(Node):
         inputs = {}
         for i, nabla_fun in enumerate(self.nabla_funs):
             inputs = {key: current_parameters[key] for key in self.nabla_inputs[i].keys()}
+            print(f"barrier {i+1} : {self.barrier_func[i].call(inputs)['value']}")
             nabla_val = nabla_fun.call(inputs)["value"]
             nabla_list.append(ca.norm_2(nabla_val))
 
@@ -402,6 +410,21 @@ class Controller(Node):
         except LookupException as e:
             self.get_logger().error('failed to get transform {} \n'.format(repr(e)))
 
+
+    def tokens_callback(self, msg):
+        """
+        Callback function for the tokens message.
+        
+        Args:
+            msg (LeaderShipTokens): The tokens message.
+        """
+        list = msg.list
+        for edgeleadership in list:
+            edge = [edgeleadership.i, edgeleadership.j, edgeleadership.leader]
+            self.LeaderShipTokens_list.append(edge)
+        
+
+        
 
     
 
