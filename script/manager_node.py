@@ -11,11 +11,12 @@ import casadi as ca
 from typing import Dict
 from std_msgs.msg import Int32, Bool
 import matplotlib.pyplot as plt
-from stl_decomposition_msgs.msg import TaskMsg, EdgeLeaderShip, LeaderShipTokens
+from stl_decomposition_msgs.msg import TaskMsg, EdgeLeaderShip, LeaderShipTokens, LeafNodes
 from ament_index_python.packages import get_package_share_directory
 from .decomposition_module import computeNewTaskGraph
 from .graph_module import create_communication_graph_from_states, create_task_graph_from_edges
-from .builders import (Agent, LeadershipToken, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, go_to_goal_predicate_2d, 
+from .dynamics_module import Agent, LeadershipToken
+from .builders import (StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, go_to_goal_predicate_2d, 
                       formation_predicate, epsilon_position_closeness_predicate, collision_avoidance_predicate)
 
 Ti = Dict[int,LeadershipToken] # token set fo a single agent
@@ -54,6 +55,7 @@ class Manager(Node):
         self.task_pub = self.create_publisher(TaskMsg, "/tasks", 10)
         self.numOfTasks_pub = self.create_publisher(Int32, "/numOfTasks", 10)
         self.tokens_pub = self.create_publisher(LeaderShipTokens, "/tokens", 10)
+        self.leaf_nodes_pub = self.create_publisher(LeafNodes, "/leaf_nodes", 10)
 
         # setup subscribers
         self.create_subscription(Bool, "/controller_ready", self.controller_ready_callback, 10)
@@ -95,15 +97,13 @@ class Manager(Node):
         # Fill the task graph with the tasks and decompose the edges that are not communicative
         self.update_graph()
 
-
-        # Change to use nx.random_spanning_tree(g) instead of nx.minimum_spanning_tree(g)
-        # create a function that find the best random spanning tree based on the task graph
         self.comm_graph: nx.Graph = nx.minimum_spanning_tree(self.comm_graph)
+
+        self.leaf_nodes = [node for node, degree in self.comm_graph.degree() if degree == 1]
 
         # add the self loops again since the minimum spanning tree does not include them
         for state in start_positions.keys():
             self.comm_graph.add_edge(state, state)
-
 
         self.tokens = self.token_passing_algorithm(self.comm_graph)
 
@@ -302,6 +302,13 @@ class Manager(Node):
 
 
     # ==================== Publishers ====================
+
+    def publish_leaf_nodes(self):
+        """Publishes the leaf nodes to the topic leaf_nodes."""
+        leaf_nodes_msg = LeafNodes()
+        leaf_nodes_msg.list = self.leaf_nodes
+        self.leaf_nodes_pub.publish(leaf_nodes_msg)
+
     def publish_tokens(self):
             """Publishes the tokens to the topic tokens."""
             LeadershipTokens_msg = LeaderShipTokens()
@@ -354,6 +361,7 @@ class Manager(Node):
         if self.bool_msg:
             self.controller_timer.cancel()
             self.publish_tokens()
+            self.publish_leaf_nodes()
             self.publish_tasks()        
             self.publish_numOfTask()
         else:

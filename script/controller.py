@@ -6,15 +6,16 @@ import tf2_ros
 from functools import partial
 import numpy as np
 import casadi as ca
-from typing import List, Dict
+from typing import List, Dict, Tuple
 from std_msgs.msg import Int32, Bool
 import casadi.tools as ca_tools
 from collections import defaultdict
-from stl_decomposition_msgs.msg import TaskMsg, EdgeLeaderShip, LeaderShipTokens
+from stl_decomposition_msgs.msg import TaskMsg, LeaderShipTokens, LeafNodes
 from geometry_msgs.msg import Twist, PoseStamped, TransformStamped
-from .builders import (BarrierFunction, Agent, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, 
+from .dynamics_module import Agent, LeadershipToken, ImpactSolverLP
+from .builders import (BarrierFunction, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, 
                       create_barrier_from_task, go_to_goal_predicate_2d, formation_predicate, 
-                      epsilon_position_closeness_predicate, conjunction_of_barriers, collision_avoidance_predicate)
+                      epsilon_position_closeness_predicate, conjunction_of_barriers)
 from tf2_ros import LookupException
 
 
@@ -40,7 +41,7 @@ class Controller(Node):
         agents                 (dict)                     : A dictionary containing all agents and their states.
         total_agents           (int)                      : The total number of agents in the environment.
         barriers               (list)                     : A list of barrier functions used to construct the constraints of the optimization problem.
-        task                   (TaskMsg)                 : The message that contains the task information.
+        task                   (TaskMsg)                  : The message that contains the task information.
         task_msg_list          (list)                     : A list of task messages.
         total_tasks            (float)                    : The total number of tasks that was sent by the manager.
         max_velocity           (int)                      : The maximum velocity of the agent used to limit the velocity command.
@@ -61,8 +62,8 @@ class Controller(Node):
         super().__init__('controller')
 
         # Optimization Problem
-        self.solver = None
-        self.parameters = None
+        self.solver : ca.Function = None
+        self.parameters : ca_tools.structure3.msymStruct = None
         self.input_vector = ca.MX.sym('input', 2)
         self.slack_variables = {}
         self.scale_factor = 3
@@ -71,7 +72,9 @@ class Controller(Node):
         self.barrier_func = []
         self.nabla_funs = []
         self.nabla_inputs = []
-        self.initial_time = 0
+        self.initial_time :float = 0
+        self._gamma : float = 1
+        self._gamma_tilde :dict[int,float] = {}
 
         # parameters declaration
         self.declare_parameter('robot_name', rclpy.Parameter.Type.STRING)
@@ -80,19 +83,35 @@ class Controller(Node):
         # Agent Information
         self.agent_name = self.get_parameter('robot_name').get_parameter_value().string_value
         self.agent_id = int(self.agent_name[-1])
-        self.agents = {} # position of all the agents in the system including self agent
         self.latest_self_transform = TransformStamped()
         self.total_agents = self.get_parameter('num_robots').get_parameter_value().integer_value
-        self.LeaderShipTokens_list = []
+        self.agents : dict[int, Agent]= {} # position of all the agents in the system including self agent
+        
+        # information stored about your neighbours
+        self.LeaderShipTokens_dict : Dict[tuple,int]= {}
+        self._leadership_tokens : Dict[int,LeadershipToken] = {}
+        self.follower_neighbour : int = None
+        self.leader_neighbours : list[int] = []
+        self.leaf_nodes : list[int] = []
+        
+        self._task_neighbours_id         : list[int]                    = []    # list of neigbouring agents IDS in the communication graph
+
+        self._best_impact_from_leaders   : dict[int,float] = {} # for each leader you will receive a best impact that you can use to compute your gamma
+        self._worse_impact_on_leaders    : dict[int,float] = {} # after you compute gamma you send back your worse impact to the leaders
+        
+        self._worse_impact_from_follower : float = 0. # this is the worse impact that the follower of your task will send you back
+        self._best_impact_on_follower    : float = 0. # this is the best impact that you can have on thhe task you are leading
+
+
 
         # Barriers and tasks
-        self.barriers = []
-        self.task = TaskMsg()   # Custom message type from stl_decomposition_msgs
+        self.barriers : list[BarrierFunction] = []
+        # self.task = TaskMsg()   # Custom message type from stl_decomposition_msgs
         self.task_msg_list = []
         self.total_tasks = float('inf')
 
         # Velocity Command Message
-        self.max_velocity = 5.0
+        self.max_velocity = 1.0
         self.vel_cmd_msg = Twist()
 
         # Setup publishers
@@ -101,6 +120,7 @@ class Controller(Node):
         self.ready_pub = self.create_publisher(Bool, "/controller_ready", 10)
 
         # Setup subscribers
+        self.create_subscription(LeafNodes, "/leaf_nodes", self.leaf_nodes_callback, 10)
         self.create_subscription(Int32, "/numOfTasks", self.numOfTasks_callback, 10)
         self.create_subscription(TaskMsg, "/tasks", self.task_callback, 10)
         self.create_subscription(LeaderShipTokens, "/tokens", self.tokens_callback, 10)
@@ -141,8 +161,55 @@ class Controller(Node):
 
         return new_barriers
 
+    
+    # NEED TO FIX THIS FUNCTION
+    def _get_splitted_barriers(self,barriers:List[BarrierFunction]) -> Tuple[BarrierFunction,List[BarrierFunction],BarrierFunction]: #,tokens : Dict[tuple,int]
+        """This function takes a list of barriers and splits them into two lists. One list contains the barriers that are along the edge where the agent is a leader and the other list contains the barriers that are along the edge where the agent is a follower"""
+        
+        barrier_you_are_leading   = None
+        follower_barriers         = []
+        independent_barrier       = None
+        
+        
+        for barrier in barriers:
+            involved_agents = barrier.contributing_agents
+            
+            if len(involved_agents) == 1:
+                independent_barrier = barrier
+            
+            if len(involved_agents) > 1:
+                if involved_agents[0] == self.agent_id:
+                    neighbour_id = involved_agents[1]
+                else:
+                    neighbour_id = involved_agents[0]
 
-    def create_barriers(self, messages:List[TaskMsg]) -> List[BarrierFunction]:
+                normalized_edge = tuple(sorted([self.agent_id, neighbour_id]))
+
+                if self.agent_id == self.LeaderShipTokens_dict[normalized_edge]: # tokens[tuple(sorted([self.agent_id, neighbour_id]))]
+                    barrier_you_are_leading = barrier
+                else:
+                    follower_barriers.append(barrier)
+        
+        return barrier_you_are_leading, follower_barriers, independent_barrier
+    
+
+    def get_leader_and_follower_neighbours(self):
+        for edge, token in self.LeaderShipTokens_dict.items():
+
+            if self.agent_id in edge:
+
+                if edge[0] == self.agent_id:
+                    neighbour_id = edge[1]
+                else :
+                    neighbour_id = edge[0]
+            
+                if token == self.agent_id: # check if you are the leader of the tasks on this edge
+                    self.follower_neighbour = neighbour_id
+                else:
+                    self.leader_neighbours.append(neighbour_id)
+
+
+    def create_barriers_from_tasks(self, messages:List[TaskMsg]) -> List[BarrierFunction]:
         """
         Constructs the barriers from the subscribed task messages.     
         
@@ -191,7 +258,7 @@ class Controller(Node):
 
             # Add the task to the barriers and the edge
             initial_conditions = [self.agents[i] for i in message.involved_agents]
-            barriers_list += [create_barrier_from_task(task=task, initial_conditions=initial_conditions, alpha_function=self.alpha_fun)]
+            barriers_list += [create_barrier_from_task(task=task, initial_conditions=initial_conditions, alpha_function=self.alpha_fun, t_init=self.initial_time)]
         
         # Create the conjunction of the barriers on the same edge
         barriers_list = self.conjunction_on_same_edge(barriers_list)
@@ -199,9 +266,26 @@ class Controller(Node):
         return barriers_list
 
 
-    def get_qpsolver_and_parameter_structure(self) -> ca.qpsol:
+    def controller_parameters(self) -> ca_tools.structure3.msymStruct:
         """
         Initializes the parameter structure that contains the state of the agents and the time. 
+        
+        Returns:
+            parameters (ca_tools.structure3.msymStruct): The parameter structure.
+        """
+        # Create the parameter structure for the optimization problem
+        parameter_list  = []
+        parameter_list += [ca_tools.entry(f"state_{id}", shape=2) for id in self.agents.keys()]
+        parameter_list += [ca_tools.entry("time", shape=1)]
+        parameter_list += [ca_tools.entry("gamma", shape=1)]
+        if self.follower_neighbour != None: # if the agent does not have a 
+            parameter_list += [ca_tools.entry("epsilon", shape=1)]
+        parameters = ca_tools.struct_symMX(parameter_list)
+        return parameters
+
+
+    def get_qpsolver(self) -> ca.qpsol:
+        """
         This function creates all that is necessary for the optimization problem and creates the optimization solver.
 
         Returns:
@@ -212,15 +296,18 @@ class Controller(Node):
             The slack variables are multiplied by a factor of 1000 for the leading agent and 10 for the other agents in an attempt to prioritize self-tasks.
         
         """
+        # Create the impact solver that will be used to compute the best and worst impacts on the barriers
+        self._impact_solver : ImpactSolverLP = ImpactSolverLP(agent=self.agents[self.agent_id])
+
+        self.get_leader_and_follower_neighbours()
 
         # Create the parameter structure for the optimization problem --- 'p' ---
-        parameter_list  = []
-        parameter_list += [ca_tools.entry(f"state_{id}", shape=2) for id in self.agents.keys()]
-        parameter_list += [ca_tools.entry("time", shape=1)]
-        self.parameters = ca_tools.struct_symMX(parameter_list)
+        self.parameters = self.controller_parameters()
 
         # Create the constraints for the optimization problem --- 'g' ---
         self.relevant_barriers = [barrier for barrier in self.barriers if self.agent_id in barrier.contributing_agents]
+        self._barrier_you_are_leading, self._barriers_you_are_following, self._independent_barrier  = self._get_splitted_barriers(barriers= self.barriers) # ,tokens = self.LeaderShipTokens_dict
+        # self.compute_gamma_tilde_values()
         barrier_constraints    = self.generate_barrier_constraints(self.relevant_barriers)
         slack_constraints      = - ca.vertcat(*list(self.slack_variables.values()))
         constraints            = ca.vertcat(barrier_constraints, slack_constraints)
@@ -233,7 +320,7 @@ class Controller(Node):
         cost = self.input_vector.T @ self.input_vector
         for id,slack in self.slack_variables.items():
             if id == self.agent_id:
-                cost += 1000* slack**2 
+                cost += 100* slack**2 
             else:
                 cost += 10* slack**2
 
@@ -255,6 +342,9 @@ class Controller(Node):
         Returns:
             constraints (ca.MX): The constraints for the optimization problem.
         """
+        print("=====================================")
+        print(f"leadership token: {self.LeaderShipTokens_dict.keys()},{self.LeaderShipTokens_dict.values()}")
+        print("=====================================")
         constraints = []
         for barrier in barrier_list:
             # Check the barrier for leading agent
@@ -281,21 +371,20 @@ class Controller(Node):
             dbdt     = partial_time_derivative_fun.call(named_inputs)["value"]
             alpha_b  = barrier.associated_alpha_function(barrier_fun.call(named_inputs)["value"])
 
-
             # check edge for leading agent
-            edge = next((edgeleadership for edgeleadership in self.LeaderShipTokens_list if edgeleadership[:2] == [self.agent_id, neighbour_id]), None)
+            leader = self.LeaderShipTokens_dict[tuple(sorted([self.agent_id, neighbour_id]))]
+            print("=====================================")
+            print(f"leader: {leader}")
+            
 
-            if edge is not None:
-                if edge[-1] == self.agent_id:
-                    load_sharing = 1
-                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b))
-                elif edge[-1] == neighbour_id:
-                    load_sharing = 1/2  # 1/len(barrier.contributing_agents)
-                    slack = ca.MX.sym(f"slack", 1)
-                    self.slack_variables[neighbour_id] = slack
-                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b + slack))     
-            else:
-                raise ValueError(f"Could not find the edge leadership token for the edge {self.agent_id} and {neighbour_id}")
+            if leader == self.agent_id:
+                load_sharing = 1
+                barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b)) # + worst impact from follower
+            elif leader == neighbour_id:
+                load_sharing = 1/2  # 1/len(barrier.contributing_agents)
+                slack = ca.MX.sym(f"slack", 1)
+                self.slack_variables[neighbour_id] = slack
+                barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b + slack))     
 
             constraints.append(barrier_constraint)
             self.barrier_func.append(barrier_fun)
@@ -339,6 +428,220 @@ class Controller(Node):
        
         self.vel_pub.publish(self.vel_cmd_msg)
         
+
+
+
+
+
+
+
+    # ==================== Modify and clean up the following functions ====================
+
+    def compute_gamma_tilde_values(self):
+        time_in_sec,_ = self.get_clock().now().seconds_nanoseconds()
+        current_time = ca.vertcat(time_in_sec-self.initial_time)
+        
+        self._logger.info(f"Trying to compute gamma tilde values...")
+        for barrier in self._barriers_you_are_following:
+            involved_agent = barrier.contributing_agents # only two agents are involved in a function for this controller
+            
+            if involved_agent[0] == self.agent_id:
+                neighbour_id = involved_agent[1]
+            else :
+                neighbour_id = involved_agent[0]
+            
+            if not (neighbour_id in self._gamma_tilde.keys()):
+                gamma_tilde = self._compute_gamma_for_barrier(barrier, current_time)
+                if gamma_tilde != None:
+                    self._gamma_tilde[neighbour_id] = gamma_tilde
+        
+        # if self._has_self_tasks :
+        #     # here we fill the nu for the self task. the other self._nu are computed inside the _compute_gamma_for_barrrier
+        #     self._nu[self.agent_id] = self._personal_upsilon_values[self.agent_id] 
+        
+    
+    def _compute_gamma_for_barrier(self, barrier: BarrierFunction, current_time: float) -> float :
+    
+        involved_agent = barrier.contributing_agents # only two agents are involved in a function for this controller
+        
+        if len(involved_agent) ==1:
+            raise RuntimeError("The given barrier function is a self task. Gamma should not be computed for this task. please revise the logic of the contoller")
+        else :
+             
+            if involved_agent[0] == self.agent_id:
+                neighbour_id = involved_agent[1]
+            else :
+                neighbour_id = involved_agent[0]
+                
+        
+        barrier_fun    : ca.Function   = barrier.function
+        local_gradient : ca.Function   = barrier.gradient_function_wrt_state_of_agent(self.agent_id)    
+        
+        associated_alpha_function :ca.Function  = barrier.associated_alpha_function # this is the alpha function associated to the barrier function in the barrier constraint
+        partial_time_derivative:ca.Function     = barrier.partial_time_derivative
+        
+        if associated_alpha_function == None:
+            raise RuntimeError("The alpha function associated to the barrier function is null. please remeber to store this function in the barrier function object for barrier computation")
+
+        neigbour_state       = self.agents[neighbour_id].state    # the neighbour state
+        current_agent_state  = self.agents[self.agent_id].state  # your current state
+        time                 = current_time
+        named_inputs         = {"state_"+str(self.agent_id):current_agent_state.flatten(),"state_"+str(neighbour_id):neigbour_state.flatten(),"time":time}
+
+        local_gardient_value = local_gradient.call(named_inputs)["value"] # compute the local gradient
+        
+        g_value = np.eye(current_agent_state.size)
+
+        if local_gardient_value.shape[0] == 1:
+            local_gardient_value = local_gardient_value.T
+
+        if neighbour_id in self.leader_neighbours: 
+            # this can be parallelised for each of the barrier you are a follower of
+            worse_input = self._impact_solver.minimize(Lg = local_gardient_value.T @ g_value) # find the input that minimises the dot product with Lg given the bound on the input
+            if worse_input.shape[0] == 1:
+                worse_input = worse_input.T
+
+            # now we need to compute the gamma for this special case  (recive the best impact from the leader via a topic)
+            try :
+                neighbour_best_impact          = self._best_impact_from_leaders[neighbour_id] # this is a scalar value representing the best impact of the neigbour on the barrier given its intupt limitations
+                self._logger.info(f"Upack leader best impact from agent {neighbour_id} with value {neighbour_best_impact}") 
+            except:
+                self._logger.info(f"Required leaders best impact from agent {neighbour_id} not available yet. Retry later...") 
+                return None
+            
+            alpha_barrier_value            = associated_alpha_function(barrier_fun.call(named_inputs)["value"])                # compute the alpha function associated to the barrier function
+            partial_time_derivative_value  = partial_time_derivative.call(named_inputs)["value"]                               # compute the partial time derivative of the barrier function
+            
+            # nu   = self._upsilon_from_neigbours[neighbour_id] + self._personal_upsilon_values[neighbour_id]
+            zeta = alpha_barrier_value + partial_time_derivative_value 
+            # self._nu[neighbour_id] = nu # store the value of nu
+
+            
+            if np.linalg.norm(local_gardient_value) <= 10**-6 :
+                gamma_tilde = 1
+            else :
+                # if self._enable_collision_avoidance :
+                #     reduction_factor = 0.8 # when you have collsion avoidance you should assume that the leader might not be able to actually express its best input because he is busy avoiding someone else. So use a reduction factor
+                # else :
+                #     reduction_factor = 1
+                reduction_factor = 1
+                gamma_tilde =  -(neighbour_best_impact*reduction_factor + zeta) / ( local_gardient_value.T @ g_value @ worse_input) # compute the gamma value
+                
+                if alpha_barrier_value < 0 :
+                    self._logger.warning(f"Alpha barrier value is negative. This entails task dissatisfaction. The value is {alpha_barrier_value}. Please very fy that the task is feasible")
+                return float(gamma_tilde)
+   
+    
+    def compute_gamma_and_notify_best_impact_on_leader_task(self, current_time: float) :
+        
+        # now it is the time to check if you have all the available information
+        if len(self.leader_neighbours) == 0 : # leaf node case
+            self._gamma = 1
+        elif len(self._gamma_tilde) != len(self.leader_neighbours) :
+            raise RuntimeError(f"The list of gamma tilde values is not complete. You have {len(self._gamma_tilde)} values, but you should have {len(self.leader_neighbours)} values from each of the leaders. Make sure you compute the gamma_tilde value for each leader at this iteration.")
+        
+        else :
+            
+            gamma_tildes_list = list(self._gamma_tilde.values())
+            self._gamma = min(gamma_tildes_list + [1]) # take the minimum of the gamma tilde values
+            
+            if self._gamma<=0 :
+                self._logger.error(f"The computed gamma value is negative. This breakes the process. The gamma value is {self._gamma}")
+                raise RuntimeError(f"The computed gamma value for agent {self.agent_id} is negative. This breakes the process. The gamma value is {self._gamma}")
+            
+        
+        # now that computation of the best impact is undertaken
+        if self.follower_neighbour != None : # if you have a task you are leader of then you should compute your best impact for the follower agent
+            self._logger.info(f"Sending Best impact notification to the follower agent {self.follower_neighbour}")
+            # now compute your best input for the follower agent
+            local_gradient :ca.Function = self._barrier_you_are_leading.gradient_function_wrt_state_of_agent(self.agent_id)    
+
+            named_inputs   = {"state_"+str(self.agent_id)         :self.agents[self.agent_id].state,
+                              "state_"+str(self.follower_neighbour):self.agents[self.follower_neighbour].state,
+                              "time"                                 :current_time}
+
+            local_gardient_value = local_gradient.call(named_inputs)["value"] # compute the local gradient
+            g_value = np.eye(self.agents[self.agent_id].state.size)
+
+            
+            # then you are leader of this task and you need to compute your best impact
+            best_input = self._impact_solver.maximize(Lg= local_gardient_value@g_value) # sign changed because you want the maximum in reality. 
+            
+            if best_input.shape[0] == 1:
+                best_input = best_input.T
+            if local_gardient_value.shape[0] == 1:
+                local_gardient_value = local_gardient_value.T
+
+            self._best_impact_on_leader_task   = np.dot(local_gardient_value.T,(g_value @ best_input*self._gamma)) # compute the best impact of the leader on the barrier given the gamma_i
+            self._best_impact_on_leader_task   = np.squeeze(self._best_impact_on_leader_task)
+            
+            # store the best impact (maybe send it to the follower via a topic instead)
+            self._best_impact_from_leaders[self.agent_id] = self._best_impact_on_leader_task 
+
+
+            # save nu for this function
+            # associated_alpha_function :ca.Function  = self._barrier_you_are_leading.associated_alpha_function # this is the alpha function associated to the barrier function in the barrier constraint
+            # partial_time_derivative:ca.Function     = self._barrier_you_are_leading.partial_time_derivative
+            
+            # alpha_barrier_value            = associated_alpha_function(self._barrier_you_are_leading.function.call(named_inputs)["value"])                # compute the alpha function associated to the barrier function
+            # partial_time_derivative_value  = partial_time_derivative.call(named_inputs)["value"]   
+            
+            # zeta = alpha_barrier_value + partial_time_derivative_value
+
+
+    
+    def compute_and_notify_worse_impact_on_follower_task(self,current_time: float) :
+        
+        # if you have leaders to notify then do it
+        if len(self.leader_neighbours) != 0 :
+            self._logger.info(f"Sending worse impact notification to leaders.... ")
+            
+            for barrier in self._barriers_you_are_following:
+                # now compute your bst input for the follower agent
+                involved_agent = barrier.contributing_agents # only two agents are involved in a function for this controller
+                
+                if len(involved_agent) > 1:
+                    if involved_agent[0] == self.agent_id:
+                        leader_neighbour = involved_agent[1]
+                    else :
+                        leader_neighbour = involved_agent[0]
+                else : # single agent task doesn't need any worse_input computation
+                    continue
+                    
+                
+                local_gradient :ca.Function = barrier.gradient_function_wrt_state_of_agent(self.agent_id)    
+                
+                named_inputs   = {"state_"+str(self.agent_id)        :self.agents[self.agent_id].state,
+                                  "state_"+str(leader_neighbour)      :self.agents[leader_neighbour].state ,
+                                  "time"                              :current_time}
+
+                local_gardient_value = local_gradient.call(named_inputs)["value"] # compute the local gradient
+
+                g_value = np.eye(self.agents[self.agent_id].state.size)
+
+                # then you are leader of this task and you need to compute your best impact
+                worse_input = self._impact_solver.minimize(Lg= local_gardient_value@g_value) 
+                
+                
+                if worse_input.shape[0] == 1:
+                    worse_input = worse_input.T
+                if local_gardient_value.shape[0] == 1:
+                    local_gardient_value = local_gardient_value.T
+
+                # send your worse impact to the leaders (via a topic)
+                self._worse_impact_on_leaders[leader_neighbour]  = np.dot(local_gardient_value.T,(g_value @ worse_input*self._gamma)) # compute the best impact of the leader on the barrier given the gamma_i
+                
+    # ========================================================================
+
+
+
+
+
+
+
+
+
+
 
 
     #  ==================== Callbacks ====================
@@ -385,8 +688,8 @@ class Controller(Node):
             self.initial_time,_ = self.get_clock().now().seconds_nanoseconds()
             
             # Create the tasks and the barriers
-            self.barriers = self.create_barriers(self.task_msg_list)
-            self.solver = self.get_qpsolver_and_parameter_structure()
+            self.barriers = self.create_barriers_from_tasks(self.task_msg_list)
+            self.solver = self.get_qpsolver()
             self.control_loop_timer = self.create_timer(0.5, self.control_loop)
         else:
             ready = Bool()
@@ -418,10 +721,27 @@ class Controller(Node):
         Args:
             msg (LeaderShipTokens): The tokens message.
         """
-        list = msg.list
-        for edgeleadership in list:
-            edge = [edgeleadership.i, edgeleadership.j, edgeleadership.leader]
-            self.LeaderShipTokens_list.append(edge)
+        tokens_list = msg.list
+        for edgeleadership in tokens_list:
+            node1, node2, leader = edgeleadership.i, edgeleadership.j, edgeleadership.leader
+
+            normalized_edge = tuple(sorted([node1, node2]))
+            if normalized_edge not in self.LeaderShipTokens_dict:
+                self.LeaderShipTokens_dict[normalized_edge] = leader
+
+
+
+
+
+
+    def leaf_nodes_callback(self, msg):
+        """
+        Callback function to get the leaf nodes in the communication graph.
+
+        Args:
+            msg (LeafNodes): The leaf nodes message.
+        """
+        self.leaf_nodes = msg.list
         
 
         

@@ -29,6 +29,7 @@ import casadi as ca
 from enum import Enum
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
+from .dynamics_module import Agent
 from typing import Tuple, Dict, List, TypeVar, Optional, Union
 
 UniqueIdentifier = int 
@@ -122,31 +123,6 @@ def get_id_from_input_name(input_name: str) -> UniqueIdentifier:
     return ids   
 
 
-class Agent:
-    """
-    Stores information about an agent.
-
-    Attributes:
-        id              (int)           : The unique identifier of the agent.
-        symbolic_state  (ca.MX)         : The symbolic representation of the agent's state.
-        state           (np.ndarray)    : The initial state of the agent.
-    """
-    def __init__(self, id: int, initial_state: np.ndarray):
-        """
-        Initializes an Agent object.
-
-        Args:
-            id            (int)         : The unique identifier of the agent.
-            initial_state (np.ndarray)  : The initial state of the agent.
-        """
-        self.id = id
-        self.symbolic_state = ca.MX.sym(f'state_{id}', 2)
-        self.state = initial_state
-
-class LeadershipToken(Enum) :
-    LEADER    = 1
-    FOLLOWER  = 2
-    UNDEFINED = 0
 
 class PredicateFunction :
     """
@@ -630,6 +606,7 @@ class BarrierFunction:
                 raise ValueError("The  function must be a scalar function of one variable")
 
 
+
 class TimeInterval :
     """
     A class that represents a time interval with a start and end time.
@@ -813,6 +790,8 @@ class TemporalOperator(ABC):
         """The type of temporal operator."""
         pass
 
+
+
 class AlwaysOperator(TemporalOperator):
     """
     Stores information about the Always operator.
@@ -855,7 +834,8 @@ class AlwaysOperator(TemporalOperator):
         """The type of temporal operator."""
         return self._temporal_type
     
-    
+
+
 class EventuallyOperator(TemporalOperator):
     """
     Stores information about the Eventually operator.
@@ -907,6 +887,7 @@ class EventuallyOperator(TemporalOperator):
     def temporal_type(self) -> str:
         """The type of temporal operator."""
         return self._temporal_type
+
 
 
 @dataclass(unsafe_hash=True)
@@ -1096,7 +1077,7 @@ def go_to_goal_predicate_2d(goal:np.ndarray,epsilon :float, agent:Agent) -> Pred
     goal_list     = [float(x) for x in array_to_list]  # Convert elements to integers
     
     if agent.symbolic_state.numel() != goal.size:
-        raise ValueError("The two dynamical models have different position dimensions. Namely " + str(agent.symbolic_state.s) + " and " + str(goal.size) + 
+        raise ValueError("The two dynamical models have different position dimensions. Namely " + str(agent.symbolic_state.shape) + " and " + str(goal.size) + 
                          "\n If you want to construct an epsilon closeness predicate use two models that have the same position dimension")
     
     

@@ -19,3 +19,8 @@ initial_conditions:
     y: 6.0
     z: 0.5
     yaw: 0.0
+  # agent5:
+  #   x: 3.0
+  #   y: 2.0
+  #   z: 0.5
+  #   yaw: 0.0
