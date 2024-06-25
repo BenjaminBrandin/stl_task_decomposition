@@ -64,19 +64,19 @@ class ImpactSolverLP:
     min Lg^T u or max Lg^T u
     s.t A u <= b
     """
-    def __init__(self, agent:Agent) -> None:
+    def __init__(self, agent:Agent, ) -> None:
         
         
         self.Lg    = ca.MX.sym("Lg",2) # This is the parameteric Lie derivative. it will computed at every time outside this function and then it will be given as a parameter
         self.cost  = self.Lg.T @ agent.symbolic_state # change of sign becaise you have to turn maximization into minimization
         
         # (input_)constraints
-        A           = ca.MX.sym("A",2,2)
-        b           = ca.MX.sym("b",2,1)
+        A           = ca.MX.eye(2)      
+        b           = ca.vertcat(1, 1) 
         constraints = A@agent.symbolic_state - b # this is already an ca.MX that is a funciton of the control input
         
-        with NoStdStreams():  # V input_vector V
-            lp          = {'x':agent.symbolic_state, 'f':self.cost, 'g':constraints,'p':self.Lg} # again we make it parameteric to avoid rebuilding the optimization program since the structure is always the same
+        with NoStdStreams():  
+            lp          = {'x':agent.symbolic_state, 'f':self.cost, 'g':constraints, 'p':self.Lg} # again we make it parameteric to avoid rebuilding the optimization program since the structure is always the same
             self.solver      = ca.qpsol('S', 'qpoases', lp,{"printLevel":"none"}) # create a solver object 
     
     def maximize(self,Lg:np.ndarray) -> np.ndarray:

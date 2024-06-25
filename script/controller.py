@@ -97,14 +97,16 @@ class Controller(Node):
         self._task_neighbours_id         : list[int]                    = []    # list of neigbouring agents IDS in the communication graph
 
         self._best_impact_from_leaders   : dict[int,float] = {}  # for each leader you will receive a best impact that you can use to compute your gamma
-        self._worse_impact_from_followers : dict[int,float] = {} # after you compute gamma you send back your worse impact to the leaders
+        self._worst_impact_from_followers : dict[int,float] = {} # after you compute gamma you send back your worst impact to the leaders
         
 
 
 
         # Barriers and tasks
         self.barriers : list[BarrierFunction] = []
-        # self.task = TaskMsg()   # Custom message type from stl_decomposition_msgs
+        self._barrier_you_are_leading : BarrierFunction = None
+        self._barriers_you_are_following : list[BarrierFunction] = []
+        self._independent_barrier : BarrierFunction = None
         self.task_msg_list = []
         self.total_tasks = float('inf')
 
@@ -136,7 +138,7 @@ class Controller(Node):
         
         self.check_transform_timer = self.create_timer(0.33, self.transform_timer_callback) # 30 Hz = 0.333s
         # Wait until all the task messages have been received
-        self.task_check_timer = self.create_timer(0.5, self.check_tasks_callback) 
+        self.task_check_timer = self.create_timer(1.0, self.check_tasks_callback) 
 
     
     def conjunction_on_same_edge(self, barriers:List[BarrierFunction]) -> List[BarrierFunction]:
@@ -165,7 +167,7 @@ class Controller(Node):
 
     
     # NEED TO FIX THIS FUNCTION
-    def _get_splitted_barriers(self,barriers:List[BarrierFunction]) -> Tuple[BarrierFunction,List[BarrierFunction],BarrierFunction]: #,tokens : Dict[tuple,int]
+    def _get_splitted_barriers(self,barriers:List[BarrierFunction]) -> Tuple[BarrierFunction,List[BarrierFunction],BarrierFunction]: 
         """This function takes a list of barriers and splits them into two lists. One list contains the barriers that are along the edge where the agent is a leader and the other list contains the barriers that are along the edge where the agent is a follower"""
         
         barrier_you_are_leading   = None
@@ -187,10 +189,12 @@ class Controller(Node):
 
                 normalized_edge = tuple(sorted([self.agent_id, neighbour_id]))
 
-                if self.agent_id == self.LeaderShipTokens_dict[normalized_edge]: # tokens[tuple(sorted([self.agent_id, neighbour_id]))]
+                if self.agent_id == self.LeaderShipTokens_dict[normalized_edge]: 
                     barrier_you_are_leading = barrier
+                    print(f"barrier {barrier.contributing_agents} is the barrier you are leading")
                 else:
                     follower_barriers.append(barrier)
+                    print(f"barrier {barrier.contributing_agents} is the barrier you are following")
         
         return barrier_you_are_leading, follower_barriers, independent_barrier
     
@@ -201,9 +205,9 @@ class Controller(Node):
             if self.agent_id in edge:
 
                 if edge[0] == self.agent_id:
-                    neighbour_id = edge[1]
+                    neighbour_id = int(edge[1])
                 else :
-                    neighbour_id = edge[0]
+                    neighbour_id = int(edge[0])
             
                 if token == self.agent_id: # check if you are the leader of the tasks on this edge
                     self.follower_neighbour = neighbour_id
@@ -260,7 +264,7 @@ class Controller(Node):
 
             # Add the task to the barriers and the edge
             initial_conditions = [self.agents[i] for i in message.involved_agents]
-            barriers_list += [create_barrier_from_task(task=task, initial_conditions=initial_conditions, alpha_function=self.alpha_fun, t_init=self.initial_time)]
+            barriers_list += [create_barrier_from_task(task=task, initial_conditions=initial_conditions, alpha_function=self.alpha_fun)]
         
         # Create the conjunction of the barriers on the same edge
         barriers_list = self.conjunction_on_same_edge(barriers_list)
@@ -280,8 +284,11 @@ class Controller(Node):
         parameter_list += [ca_tools.entry(f"state_{id}", shape=2) for id in self.agents.keys()]
         parameter_list += [ca_tools.entry("time", shape=1)]
         parameter_list += [ca_tools.entry("gamma", shape=1)]
-        if self.follower_neighbour != None: # if the agent does not have a follower then it does not need to compute the best impact for the follower and won't get the worse impact from the follower
+        
+        # parameter_list += [ca_tools.entry("epsilon", shape=1)]
+        if self.follower_neighbour != None: # if the agent does not have a follower then it does not need to compute the best impact for the follower and won't get the worst impact from the follower
             parameter_list += [ca_tools.entry("epsilon", shape=1)]
+        
         parameters = ca_tools.struct_symMX(parameter_list)
         return parameters
 
@@ -295,7 +302,6 @@ class Controller(Node):
 
         Note:
             The cost function is a quadratic function of the input vector and the slack variables where the slack variables are used to enforce the barrier constraints.
-            The slack variables are multiplied by a factor of 1000 for the leading agent and 10 for the other agents in an attempt to prioritize self-tasks.
         
         """
         # Create the impact solver that will be used to compute the best and worst impacts on the barriers (NEEDS FIXING)
@@ -303,23 +309,34 @@ class Controller(Node):
 
         # get the neighbours of the current agent
         self.get_leader_and_follower_neighbours()
+        self.relevant_barriers = [barrier for barrier in self.barriers if self.agent_id in barrier.contributing_agents]
+        self._barrier_you_are_leading, self._barriers_you_are_following, self._independent_barrier  = self._get_splitted_barriers(barriers= self.relevant_barriers)
 
         # Get the current time
         time_in_sec,_ = self.get_clock().now().seconds_nanoseconds()
         current_time = ca.vertcat(time_in_sec-self.initial_time)
 
         # Compute the gamma tilde values and calculate the best and worst impacts on the barriers
-        self.compute_gamma_tilde_values(current_time = current_time)
-        self.compute_gamma_and_notify_best_impact_on_leader_task(current_time = current_time)
-        self.compute_and_notify_worse_impact_on_follower_task(current_time = current_time)
+        # self.compute_gamma_tilde_values(current_time = current_time)
+        # self.compute_gamma_and_notify_best_impact_on_leader_task(current_time = current_time)
+        # self.compute_and_notify_worst_impact_on_follower_task(current_time = current_time)
+        if self.agent_id in self.leaf_nodes:
+            self.compute_gamma_and_notify_best_impact_on_leader_task(current_time = current_time)
+        elif self._barrier_you_are_leading is None:
+            self.compute_gamma_tilde_values(current_time = current_time)
+            self.compute_and_notify_worst_impact_on_follower_task(current_time = current_time)
+        else:
+            self.compute_gamma_tilde_values(current_time = current_time)
+            self.compute_gamma_and_notify_best_impact_on_leader_task(current_time = current_time)
+            self.compute_and_notify_worst_impact_on_follower_task(current_time = current_time)
+
+
 
         # Create the parameter structure for the optimization problem --- 'p' ---
         self.parameters = self.controller_parameters()
 
         # Create the constraints for the optimization problem --- 'g' ---
-        self.relevant_barriers = [barrier for barrier in self.barriers if self.agent_id in barrier.contributing_agents]
-        self._barrier_you_are_leading, self._barriers_you_are_following, self._independent_barrier  = self._get_splitted_barriers(barriers= self.barriers) # ,tokens = self.LeaderShipTokens_dict
-        # self.compute_gamma_tilde_values()
+        # self.relevant_barriers = [barrier for barrier in self.barriers if self.agent_id in barrier.contributing_agents]
         barrier_constraints    = self.generate_barrier_constraints(self.relevant_barriers)
         slack_constraints      = - ca.vertcat(*list(self.slack_variables.values()))
         constraints            = ca.vertcat(barrier_constraints, slack_constraints)
@@ -407,11 +424,20 @@ class Controller(Node):
         time_in_sec,_ = self.get_clock().now().seconds_nanoseconds()
         current_parameters["time"] = ca.vertcat(time_in_sec-self.initial_time)
         current_parameters["gamma"] = self._gamma
-        if self.follower_neighbour != None:
-            current_parameters["epsilon"] = self._worse_impact_from_followers[self.follower_neighbour]
         for id in self.agents.keys():
             current_parameters[f'state_{id}'] = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
 
+        
+        if self.follower_neighbour != None:
+            current_parameters["epsilon"] = self._worst_impact_from_followers[self.follower_neighbour]
+
+        # if self.follower_neighbour in self._worst_impact_from_followers.keys():
+        #     current_parameters["epsilon"] = self._worst_impact_from_followers[self.follower_neighbour]
+        # else:
+        #     current_parameters["epsilon"] = 0.0
+        
+        
+        
         # Calculate the gradient values to check for convergence
         nabla_list = []
         inputs = {}
@@ -446,7 +472,7 @@ class Controller(Node):
 
     # ==================== Modify and clean up the following functions ====================
 
-    def compute_gamma_tilde_values(self, current_time: float): #2
+    def compute_gamma_tilde_values(self, current_time: float):
         time_in_sec,_ = self.get_clock().now().seconds_nanoseconds()
         current_time = ca.vertcat(time_in_sec-self.initial_time)
         
@@ -506,10 +532,10 @@ class Controller(Node):
 
         if neighbour_id in self.leader_neighbours: 
             # this can be parallelised for each of the barrier you are a follower of
-            worse_input = self._impact_solver.minimize(Lg = local_gardient_value.T @ g_value) # find the input that minimises the dot product with Lg given the bound on the input
-            if worse_input.shape[0] == 1:
-                worse_input = worse_input.T
-
+            worst_input = self._impact_solver.minimize(Lg = local_gardient_value.T @ g_value) # find the input that minimises the dot product with Lg given the bound on the input
+            if worst_input.shape[0] == 1:
+                worst_input = worst_input.T
+        
             # now we need to compute the gamma for this special case  (recive the best impact from the leader via a topic)
             try :
                 neighbour_best_impact          = self._best_impact_from_leaders[neighbour_id] # this is a scalar value representing the best impact of the neigbour on the barrier given its intupt limitations
@@ -534,23 +560,22 @@ class Controller(Node):
                 # else :
                 #     reduction_factor = 1
                 reduction_factor = 1
-                gamma_tilde =  -(neighbour_best_impact*reduction_factor + zeta) / ( local_gardient_value.T @ g_value @ worse_input) # compute the gamma value
+                gamma_tilde =  -(neighbour_best_impact*reduction_factor + zeta) / ( local_gardient_value.T @ g_value @ worst_input) # compute the gamma value
                 
                 if alpha_barrier_value < 0 :
                     self._logger.warning(f"Alpha barrier value is negative. This entails task dissatisfaction. The value is {alpha_barrier_value}. Please very fy that the task is feasible")
                 return float(gamma_tilde)
    
     
-    def compute_gamma_and_notify_best_impact_on_leader_task(self, current_time: float) : #1
+    def compute_gamma_and_notify_best_impact_on_leader_task(self, current_time: float) : 
         
         # now it is the time to check if you have all the available information
-        if len(self.leader_neighbours) == 0 : # leaf node case
+        if len(self.leader_neighbours) == 0 : # leaf node case # or self.agent_id in self.leaf_nodes
             self._gamma = 1
         elif len(self._gamma_tilde) != len(self.leader_neighbours) :
+            # self.compute_gamma_tilde_values(current_time = current_time)
             raise RuntimeError(f"The list of gamma tilde values is not complete. You have {len(self._gamma_tilde)} values, but you should have {len(self.leader_neighbours)} values from each of the leaders. Make sure you compute the gamma_tilde value for each leader at this iteration.")
-        
-        else :
-            
+        else:
             gamma_tildes_list = list(self._gamma_tilde.values())
             self._gamma = min(gamma_tildes_list + [1]) # take the minimum of the gamma tilde values
             
@@ -587,8 +612,10 @@ class Controller(Node):
             # This is the best impact the self.agent_id have on the task it is leading (maybe send it to the follower via a topic instead)
             best_impact_msg = ImpactMsg()
             best_impact_msg.node = self.agent_id
-            best_impact_msg.impact = self._best_impact_on_leader_task
+            best_impact_msg.impact = float(self._best_impact_on_leader_task)
             self.best_impact_pub.publish(best_impact_msg)
+            print(f"===Published best impact")
+            
 
 
             # save nu for this function
@@ -602,11 +629,11 @@ class Controller(Node):
 
 
     
-    def compute_and_notify_worse_impact_on_follower_task(self,current_time: float) :
+    def compute_and_notify_worst_impact_on_follower_task(self,current_time: float) :
         
         # if you have leaders to notify then do it
         if len(self.leader_neighbours) != 0 :
-            self._logger.info(f"Sending worse impact notification to leaders.... ")
+            self._logger.info(f"Sending worst impact notification to leaders.... ")
             
             for barrier in self._barriers_you_are_following:
                 # now compute your bst input for the follower agent
@@ -617,7 +644,7 @@ class Controller(Node):
                         leader_neighbour = involved_agent[1]
                     else :
                         leader_neighbour = involved_agent[0]
-                else : # single agent task doesn't need any worse_input computation
+                else : # single agent task doesn't need any worst_input computation
                     continue
                     
                 
@@ -632,21 +659,21 @@ class Controller(Node):
                 g_value = np.eye(self.agents[self.agent_id].state.size)
 
                 # then you are leader of this task and you need to compute your best impact
-                worse_input = self._impact_solver.minimize(Lg= local_gardient_value@g_value) 
+                worst_input = self._impact_solver.minimize(Lg= local_gardient_value@g_value) 
                 
                 
-                if worse_input.shape[0] == 1:
-                    worse_input = worse_input.T
+                if worst_input.shape[0] == 1:
+                    worst_input = worst_input.T
                 if local_gardient_value.shape[0] == 1:
                     local_gardient_value = local_gardient_value.T
 
-                # send your worse impact to the leaders (via a topic)
+                # send your worst impact to the leaders (via a topic)
                 worst_impact_msg = ImpactMsg()
                 worst_impact_msg.node = self.agent_id
-                worst_impact_msg.impact = np.dot(local_gardient_value.T,(g_value @ worse_input*self._gamma))
+                worst_impact_msg.impact = float(np.dot(local_gardient_value.T,(g_value @ worst_input*self._gamma)))
                 self.worst_impact_pub.publish(worst_impact_msg)
 
-                # self._worse_impact_to_leaders[leader_neighbour]  = np.dot(local_gardient_value.T,(g_value @ worse_input*self._gamma)) # compute the best impact of the leader on the barrier given the gamma_i
+                # self._worst_impact_to_leaders[leader_neighbour]  = np.dot(local_gardient_value.T,(g_value @ worst_input*self._gamma)) # compute the best impact of the leader on the barrier given the gamma_i
                 
     # ========================================================================
 
@@ -755,6 +782,8 @@ class Controller(Node):
             msg (ImpactMsg): The best impact message.
         """
         self._best_impact_from_leaders[msg.node] = msg.impact
+        print("=====================================")
+        print(f"Received best impact from agent {msg.node} with value {msg.impact}")
 
     
     def worst_impact_callback(self, msg):
@@ -764,7 +793,9 @@ class Controller(Node):
         Args:
             msg (ImpactMsg): The worst impact message.
         """
-        self._worse_impact_from_followers[msg.node] = msg.impact
+        self._worst_impact_from_followers[msg.node] = msg.impact
+        print("=====================================")
+        print(f"Received worst impact from agent {msg.node} with value {msg.impact}")
 
 
 
