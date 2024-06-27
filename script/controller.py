@@ -105,8 +105,8 @@ class Controller(Node):
         self._task_neighbours_id         : list[int]                    = []    # list of neigbouring agents IDS in the communication graph
 
         self._best_impact_from_leaders   : dict[int,float] = {}  # for each leader you will receive a best impact that you can use to compute your gamma
-        self._worst_impact_from_followers : dict[int,float] = {} # after you compute gamma you send back your worst impact to the leaders
-        
+        # self._worst_impact_from_followers : dict[int,float] = {} # after you compute gamma you send back your worst impact to the leaders
+        self._worst_impact_from_followers : dict[int,dict[int,float]] = {}
 
         # Barriers and tasks
         self.barriers : list[BarrierFunction] = []
@@ -151,7 +151,10 @@ class Controller(Node):
 
     def notify_and_wait_for_impact(self):
         self.compute_gamma_and_notify_best_impact_on_leader_task()
-        self.wait_for_condition(lambda: self.follower_neighbour in self._worst_impact_from_followers.keys())
+        # self.wait_for_condition(lambda: self.follower_neighbour in self._worst_impact_from_followers.keys())
+        self.wait_for_condition(lambda: self.follower_neighbour in self._worst_impact_from_followers and 
+            self.agent_id in self._worst_impact_from_followers[self.follower_neighbour])
+
 
     def process_leaf_node(self):
         self.notify_and_wait_for_impact()
@@ -441,21 +444,28 @@ class Controller(Node):
         if self.ready_to_compute_gamma:
             self.compute_gamma()
 
+
+
+
+
         current_parameters["time"] = self.current_time
         current_parameters["gamma"] = self._gamma
         for id in self.agents.keys():
             current_parameters[f'state_{id}'] = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
 
         if self.follower_neighbour != None:
-            current_parameters["epsilon"] = self._worst_impact_from_followers[self.follower_neighbour]
+            current_parameters["epsilon"] = self._worst_impact_from_followers[self.follower_neighbour][self.agent_id]
 
 
         # Empty the best and worst impact values
-        self._best_impact_from_leaders = {}
-        self._worst_impact_from_followers = {}
-        self._gamma_tilde = {}
-        self.ready_to_compute_gamma = False
+        # self._best_impact_from_leaders = {}
+        # self._worst_impact_from_followers = {}
+        # self._gamma_tilde = {}
+        # self.ready_to_compute_gamma = False
         
+        while len(self._worst_impact_from_followers) == 0:
+            pass
+        print(f"Worse impact {self._worst_impact_from_followers}")
         # Calculate the gradient values to check for convergence
         nabla_list = []
         inputs = {}
@@ -622,7 +632,8 @@ class Controller(Node):
             
             # Publishing the best impact to the follower
             best_impact_msg = ImpactMsg()
-            best_impact_msg.node = self.agent_id
+            best_impact_msg.i = self.agent_id
+            best_impact_msg.j = self.follower_neighbour
             best_impact_msg.impact = float(self._best_impact_on_leader_task)
             self.best_impact_pub.publish(best_impact_msg)
             print(f"===Published best impact: {self._best_impact_on_leader_task}")
@@ -674,7 +685,8 @@ class Controller(Node):
 
                 # Publishing the worst impact to the leaders
                 worst_impact_msg = ImpactMsg()
-                worst_impact_msg.node = self.agent_id
+                worst_impact_msg.i = self.agent_id
+                worst_impact_msg.j = leader_neighbour
                 worst_impact_msg.impact = float(self._worst_impact_on_leader_task)
                 self.worst_impact_pub.publish(worst_impact_msg)
                 print(f"===Published worst impact: {self._worst_impact_on_leader_task}")
@@ -779,9 +791,9 @@ class Controller(Node):
         Args:
             msg (ImpactMsg): The best impact message.
         """
-        self._best_impact_from_leaders[msg.node] = msg.impact
+        self._best_impact_from_leaders[msg.i] = msg.impact
         print("=====================================")
-        print(f"Received best impact from agent {msg.node} with value {msg.impact}")
+        print(f"Received best impact from agent {msg.i} with value {msg.impact}")
 
     
     def worst_impact_callback(self, msg):
@@ -791,9 +803,12 @@ class Controller(Node):
         Args:
             msg (ImpactMsg): The worst impact message.
         """
-        self._worst_impact_from_followers[msg.node] = msg.impact
+        if msg.i not in self._worst_impact_from_followers:
+            self._worst_impact_from_followers[msg.i] = {}
+    
+        self._worst_impact_from_followers[msg.i][msg.j] = msg.impact
         print("=====================================")
-        print(f"Received worst impact from agent {msg.node} with value {msg.impact}")
+        print(f"Received worst impact from agent {msg.i} with value {msg.impact}")
 
 
 
