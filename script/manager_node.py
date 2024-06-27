@@ -9,7 +9,7 @@ import networkx as nx
 from   networkx import diameter as net_diameter
 import casadi as ca
 from typing import Dict
-from std_msgs.msg import Int32, Bool
+from std_msgs.msg import Int32
 import matplotlib.pyplot as plt
 from stl_decomposition_msgs.msg import TaskMsg, EdgeLeaderShip, LeaderShipTokens, LeafNodes
 from ament_index_python.packages import get_package_share_directory
@@ -17,7 +17,7 @@ from .decomposition_module import computeNewTaskGraph
 from .graph_module import create_communication_graph_from_states, create_task_graph_from_edges
 from .dynamics_module import Agent, LeadershipToken
 from .builders import (StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, go_to_goal_predicate_2d, 
-                      formation_predicate, epsilon_position_closeness_predicate, collision_avoidance_predicate)
+                      formation_predicate, epsilon_position_closeness_predicate)
 
 Ti = Dict[int,LeadershipToken] # token set fo a single agent
 
@@ -49,7 +49,8 @@ class Manager(Node):
         self.agents: dict[int, Agent] = {}
         self.total_tasks: int = 0
         communication_radius: float = 4
-        self.bool_msg = False
+        self.bool_msg :bool = False
+        self.ready_controllers : list[int] = []
 
         # setup publishers
         self.task_pub = self.create_publisher(TaskMsg, "/tasks", 10)
@@ -58,7 +59,7 @@ class Manager(Node):
         self.leaf_nodes_pub = self.create_publisher(LeafNodes, "/leaf_nodes", 10)
 
         # setup subscribers
-        self.create_subscription(Bool, "/controller_ready", self.controller_ready_callback, 10)
+        self.create_subscription(Int32, "/controller_ready", self.controller_ready_callback, 10)
 
         # Define package names and subpaths
         pkg_name = 'stl_task_decomposition'
@@ -113,7 +114,7 @@ class Manager(Node):
 
 
         # Wait for the controllers to be ready
-        self.controller_timer = self.create_timer(0.33, self.wait_for_controller_callback)
+        self.controller_timer = self.create_timer(0.5, self.wait_for_controller_callback)
         
 
 
@@ -354,11 +355,16 @@ class Manager(Node):
 
     #  ==================== Callbacks ====================
     def controller_ready_callback(self, msg):
-        self.bool_msg = msg.data
+        agent = msg.data
+        if agent not in self.ready_controllers:
+            self.ready_controllers.append(agent)
+        else:
+            pass
 
 
     def wait_for_controller_callback(self):
-        if self.bool_msg:
+        
+        if all(agent in self.ready_controllers for agent in self.agents.keys()):
             self.controller_timer.cancel()
             self.publish_tokens()
             self.publish_leaf_nodes()

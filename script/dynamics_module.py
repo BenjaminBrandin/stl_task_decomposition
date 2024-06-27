@@ -64,15 +64,14 @@ class ImpactSolverLP:
     min Lg^T u or max Lg^T u
     s.t A u <= b
     """
-    def __init__(self, agent:Agent, ) -> None:
+    def __init__(self, agent:Agent, max_velocity:float) -> None:
         
         
         self.Lg    = ca.MX.sym("Lg",2) # This is the parameteric Lie derivative. it will computed at every time outside this function and then it will be given as a parameter
         self.cost  = self.Lg.T @ agent.symbolic_state # change of sign becaise you have to turn maximization into minimization
         
-        # (input_)constraints
-        A           = ca.MX.eye(2)      
-        b           = ca.vertcat(1, 1) 
+        # (input_)constraints where A,b are from create_approximate_ball_constraints2d
+        A, b, input_verticies = create_approximate_ball_constraints2d(radius=max_velocity, points_number=40)
         constraints = A@agent.symbolic_state - b # this is already an ca.MX that is a funciton of the control input
         
         with NoStdStreams():  
@@ -87,6 +86,8 @@ class ImpactSolverLP:
     def minimize(self,Lg:np.ndarray) -> np.ndarray:
         """This program will simply be solved as a function of the parameter. This avoids re bulding the optimization program every time"""
         return self.solver(p=Lg,ubg=0)["x"]
+
+
 
 
 def create_approximate_ball_constraints2d(radius:float,points_number:int)-> Tuple[np.ndarray,np.ndarray,np.ndarray] :
