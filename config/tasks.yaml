@@ -4,7 +4,7 @@ TASK_1:
   CENTER: [-1.0, -1.0]
   EPSILON: 1.5
   TEMP_OP: "AlwaysOperator"
-  INTERVAL: [20, 40]
+  INTERVAL: [30, 50]
   INVOLVED_AGENTS: [1, 2]
 
 TASK_2:
