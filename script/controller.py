@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from rclpy.time import Time, Duration
+from rclpy.time import Time
 import tf2_ros
-import time
-from math import isnan
 from functools import partial
 import numpy as np
 import casadi as ca
@@ -83,8 +81,6 @@ class Controller(Node):
         self.current_time :float = 0
         self._gamma : float = 1
         self._gamma_tilde :dict[int,float] = {}
-        self._best_impact_on_leader_task : float = None
-        self._worst_impact_on_leader_task : float = None
         self.A, self.b, self.input_verticies = create_approximate_ball_constraints2d(radius=self.max_velocity, points_number=40)
         
         # parameters declaration from launch file
@@ -107,8 +103,13 @@ class Controller(Node):
         self.follower_neighbour : int = None
         self.leader_neighbours : list[int] = []
         self.leaf_nodes : list[int] = []
-        self._best_impact_from_leaders    : dict[int,float] = {}  # for each leader you will receive a best impact that you can use to compute your gamma
-        self._worst_impact_from_followers : dict[int,dict[int,float]] = {} # after you compute gamma you send back your worst impact to the leaders
+        
+        self._best_impact_from_leaders   : dict[int,float] = {}     # for each leader you will receive a best impact that you will use to compute your gamma
+        self._worst_impact_on_leaders    : dict[int,float] = {}     # after you compute gamma you send back your worst impact to the leaders
+        
+        self._worst_impact_from_follower : float = 0.0             # this is the worse impact that the follower of your task will send you back
+        self._best_impact_on_follower    : float = 0.0             # this is the best impact that you can have on the task you are leading
+        
 
         # Barriers and tasks
         self.barriers : list[BarrierFunction] = []
@@ -168,20 +169,23 @@ class Controller(Node):
         return response
         
 
-    def calculate_impact(self, neighbour_id: int, impact_type: str):
+    def calculate_impact(self, neighbour_id: int, impact_type: str) -> float:
+        
         if impact_type == "best":
-            if self.agent_id in self._best_impact_from_leaders:
-                return self._best_impact_from_leaders[self.agent_id]
+            if self._best_impact_on_follower != 0.0:
+                return self._best_impact_on_follower
             else:
-                self.get_logger().error(f"Best impact value for agent {neighbour_id} not available")
-                return float('nan')
+                self.compute_gamma_and_best_impact_on_leading_task()
+                return self._best_impact_on_follower  
+            
         elif impact_type == "worst":
             # Checks if the current node have computed the worst impact value for the leader that sent the request
-            if self.agent_id in self._worst_impact_from_followers and neighbour_id in self._worst_impact_from_followers[self.agent_id]:
-                return self._worst_impact_from_followers[self.agent_id][neighbour_id]
+            if neighbour_id in self._worst_impact_on_leaders:
+                return self._worst_impact_on_leaders[neighbour_id]
             else:
-                self.get_logger().error(f"Worst impact value for agent {neighbour_id} not available")
-                return float('nan')
+                # TODO: Need a way to wait until the current node has all the leaders best impacts and computed the _gamma value
+                self.compute_worst_impact_on_following_task()
+                return self._worst_impact_on_leaders[neighbour_id]         
             
 
     def call_impact_service(self, neighbour_id: int, impact_type: str):
@@ -191,41 +195,38 @@ class Controller(Node):
         request.type = impact_type
         future = self.impact_clients[neighbour_id].call_async(request)
         rclpy.spin_until_future_complete(self, future)
-        # return future.result().impact
         print(f"impact value: {future.result().impact}, result {future.result()}")
-        if not isnan(future.result()):
-            return future.result().impact
-        else:
-            self.get_logger().error('Service call failed')
-            return None
+        return future.result().impact
+        
 
-    def notify_and_wait_for_impact(self):
-        self.compute_gamma_and_notify_best_impact_on_leader_task()
+    def send_best_impact_and_wait_for_worst_impact(self):
+        self.compute_gamma_and_best_impact_on_leading_task()
         impact = self.call_impact_service(self.follower_neighbour, "worst")
         
-        if impact is not None:
-            if self.follower_neighbour not in self._worst_impact_from_followers:
-                self._worst_impact_from_followers[self.follower_neighbour] = {}
-            self._worst_impact_from_followers[self.follower_neighbour][self.agent_id] = impact
+        if impact != 0.0:
+            self._worst_impact_from_follower = impact
         else:
             self.get_logger().error(f"Failed to receive worst impact from follower {self.follower_neighbour}")
 
+
     def process_leaf_node(self):
-        self.notify_and_wait_for_impact()
+        self.send_best_impact_and_wait_for_worst_impact()
+
 
     def process_non_leaf_node(self):
         for leader in self.leader_neighbours:
+            # check the topic first to see if the best impact is available
             impact = self.call_impact_service(leader, "best")
-            if impact is not None:
+            
+            if impact != 0.0:
                 self._best_impact_from_leaders[leader] = impact
             else:
                 self.get_logger().error(f"Failed to receive best impact from leader {leader}")
-        self.compute_gamma_tilde_values()
-
-    def compute_gamma(self):
-        if self.follower_neighbour is not None:
-            self.notify_and_wait_for_impact()
-        self.compute_and_notify_worst_impact_on_follower_task()
+        
+        if all(leader in self._best_impact_from_leaders for leader in self.leader_neighbours):
+            self.compute_gamma_tilde_values()
+        else:
+            pass #TODO: Need a way to wait until all the best impacts are received
 
 
 
@@ -498,14 +499,11 @@ class Controller(Node):
             self.process_leaf_node()
         else:
             self.process_non_leaf_node()
-
-        if self.ready_to_compute_gamma:
-            self.compute_gamma()
             
-
-        # FOR SERVICE TESTING
-        # client ask for best or worst impact and if the response is '999.9' then the agent has not computed the impact yet
-         
+        if self.ready_to_compute_gamma:
+            self.send_best_impact_and_wait_for_worst_impact()
+            self.compute_worst_impact_on_following_task()
+            
 
 
         # Fill the structure with the values
@@ -515,21 +513,18 @@ class Controller(Node):
             current_parameters[f'state_{id}'] = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
 
         if self.follower_neighbour != None:
-            current_parameters["epsilon"] = self._worst_impact_from_followers[self.follower_neighbour][self.agent_id]
+            current_parameters["epsilon"] = self._worst_impact_from_follower
 
 
         # Empty the best and worst impact values
         # self._best_impact_from_leaders = {}
-        # self._worst_impact_from_followers = {}
+        # self._worst_impact_from_follower = 0.0
         # self._gamma_tilde = {}
         # self.ready_to_compute_gamma = False
 
         
 
 
-        if self.agent_id in self.leaf_nodes:
-            self._logger.info(f"Worse impact {self._worst_impact_from_followers}")
-        
         # Calculate the gradient values to check for convergence
         nabla_list = []
         inputs = {}
@@ -579,7 +574,7 @@ class Controller(Node):
                 gamma_tilde = self._compute_gamma_for_barrier(barrier)
                 if gamma_tilde != None:
                     self._gamma_tilde[neighbour_id] = gamma_tilde
-        # self.ready_to_compute_gamma = True
+        
         if len(self._gamma_tilde) == len(self.leader_neighbours):
             self.ready_to_compute_gamma = True
         else:
@@ -643,21 +638,16 @@ class Controller(Node):
             
             if np.linalg.norm(local_gardient_value) <= 10**-6 :
                 gamma_tilde = 1
-            else :
-                # if self._enable_collision_avoidance :
-                #     reduction_factor = 0.8 # when you have collsion avoidance you should assume that the leader might not be able to actually express its best input because he is busy avoiding someone else. So use a reduction factor
-                # else :
-                #     reduction_factor = 1
-                reduction_factor = 1
-                gamma_tilde =  -(neighbour_best_impact*reduction_factor + zeta) / ( local_gardient_value.T @ g_value @ worst_input) # compute the gamma value
+            else : #TODO: Introduce a reduction factor for collision avoidance
+                gamma_tilde =  -(neighbour_best_impact + zeta) / ( local_gardient_value.T @ g_value @ worst_input) # compute the gamma value
                 
                 if alpha_barrier_value < 0 :
                     self._logger.warning(f"Alpha barrier value is negative. This entails task dissatisfaction. The value is {alpha_barrier_value}. Please verify that the task is feasible")
                 return float(gamma_tilde)
    
     
-    def compute_gamma_and_notify_best_impact_on_leader_task(self) : 
-        
+    def compute_gamma_and_best_impact_on_leading_task(self) : 
+
         # now it is the time to check if you have all the available information
         if len(self.leader_neighbours) == 0 : # leaf node case # or self.agent_id in self.leaf_nodes
             self._gamma = 1
@@ -693,22 +683,23 @@ class Controller(Node):
             if local_gardient_value.shape[0] == 1:
                 local_gardient_value = local_gardient_value.T
 
-            self._best_impact_on_leader_task   = np.dot(local_gardient_value.T,(g_value @ best_input*self._gamma)) # compute the best impact of the leader on the barrier given the gamma_i
-            self._best_impact_on_leader_task   = np.squeeze(self._best_impact_on_leader_task)
-            self._best_impact_from_leaders[self.agent_id] = float(self._best_impact_on_leader_task)
             
+            best_impact_value = np.dot(local_gardient_value.T,(g_value @ best_input*self._gamma)) # compute the best impact of the leader on the barrier given the gamma_i
+            best_impact_value = np.squeeze(best_impact_value)
+            self._best_impact_on_follower = float(best_impact_value)
+
             # Publishing the best impact to the follower
-            best_impact_msg = ImpactMsg()
-            best_impact_msg.i = self.agent_id
-            best_impact_msg.j = self.follower_neighbour
-            best_impact_msg.impact = float(self._best_impact_on_leader_task)
-            self.best_impact_pub.publish(best_impact_msg)
-            self._logger.info(f"===Published best impact: {self._best_impact_on_leader_task}")
+            # best_impact_msg = ImpactMsg()
+            # best_impact_msg.i = self.agent_id
+            # best_impact_msg.j = self.follower_neighbour
+            # best_impact_msg.impact = self._best_impact_on_follower 
+            # self.best_impact_pub.publish(best_impact_msg)
+            # self._logger.info(f"===Published best impact: {self._best_impact_on_follower}")
             
 
 
     
-    def compute_and_notify_worst_impact_on_follower_task(self) :
+    def compute_worst_impact_on_following_task(self) :
         
         # if you have leaders to notify then do it
         if len(self.leader_neighbours) != 0 :
@@ -746,21 +737,20 @@ class Controller(Node):
                 if local_gardient_value.shape[0] == 1:
                     local_gardient_value = local_gardient_value.T
 
+                worst_impact_value = np.dot(local_gardient_value.T,(g_value @ worst_input*self._gamma))
+                worst_impact_value = np.squeeze(worst_impact_value)
+                self._worst_impact_on_leaders[leader_neighbour] = float(worst_impact_value)
 
-                self._worst_impact_on_leader_task   = np.dot(local_gardient_value.T,(g_value @ worst_input*self._gamma)) 
-                self._worst_impact_on_leader_task   = np.squeeze(self._worst_impact_on_leader_task)
                 
-                if self.agent_id not in self._worst_impact_from_followers:
-                    self._worst_impact_from_followers[self.agent_id] = {}
-                self._worst_impact_from_followers[self.agent_id][leader_neighbour] = float(self._worst_impact_on_leader_task)
+
 
                 # Publishing the worst impact to the leaders
-                worst_impact_msg = ImpactMsg()
-                worst_impact_msg.i = self.agent_id
-                worst_impact_msg.j = leader_neighbour
-                worst_impact_msg.impact = float(self._worst_impact_on_leader_task)
-                self.worst_impact_pub.publish(worst_impact_msg)
-                self._logger.info(f"===Published worst impact: {self._worst_impact_on_leader_task}")
+                # worst_impact_msg = ImpactMsg()
+                # worst_impact_msg.i = self.agent_id
+                # worst_impact_msg.j = leader_neighbour
+                # worst_impact_msg.impact = self._worst_impact_on_leaders[leader_neighbour]
+                # self.worst_impact_pub.publish(worst_impact_msg)
+                # self._logger.info(f"===Published worst impact for leader agent {leader_neighbour} with value: {self._worst_impact_on_leaders[leader_neighbour]}")
  
 
 
@@ -874,8 +864,11 @@ class Controller(Node):
         Args:
             msg (ImpactMsg): The best impact message.
         """
-        self._best_impact_from_leaders[msg.i] = msg.impact
-        self._logger.info(f"Received best impact from agent {msg.i} with value {msg.impact}") 
+        if msg.i in self.leader_neighbours:
+            self._best_impact_from_leaders[msg.i] = msg.impact
+            self._logger.info(f"Received best impact from agent {msg.i} with value {msg.impact}")
+        else:
+            pass 
 
     
     def worst_impact_callback(self, msg):
@@ -885,15 +878,13 @@ class Controller(Node):
         Args:
             msg (ImpactMsg): The worst impact message.
         """
-        if msg.i not in self._worst_impact_from_followers:
-            self._worst_impact_from_followers[msg.i] = {}
-
+        if msg.j == self.agent_id:
+            self._worst_impact_from_follower = msg.impact
+            self._logger.info(f"Received worst impact from agent {msg.i} with value {msg.impact}")
+        else:
+            pass
         
-        self._worst_impact_from_followers[msg.i][msg.j] = msg.impact
-        self._logger.info(f"Received worst impact from agent {msg.i} with value {msg.impact}")
 
-
-    
         
 
     
