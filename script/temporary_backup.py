@@ -457,14 +457,6 @@ class Controller(Node):
             current_parameters["epsilon"] = self._worst_impact_from_follower
 
 
-        # Empty the best and worst impact values
-        # self._best_impact_from_leaders = {}
-        # self._worst_impact_from_follower = 0.0
-        # self._gamma_tilde = {}
-        # self.ready_to_compute_gamma = False
-
-        
-
 
         # Calculate the gradient values to check for convergence
         nabla_list = []
