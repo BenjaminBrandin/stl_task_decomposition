@@ -61,6 +61,7 @@ class Controller(Node):
         
         # Service and Client Information 
         self.ready_to_compute_gamma = False
+        self.allowed_to_ask_for_worst = False
         self.pending_requests = []
         self.response_received = {}
         self.impact_results = {}
@@ -131,16 +132,17 @@ class Controller(Node):
 
 
     def impact_callback(self, request, response):
-        self.get_logger().info(f"Received request from agent {request.i} for {request.type} impact")
+        # self.get_logger().info(f"Received request from agent {request.i} for {request.type} impact")
         if request.type == "best":
             if self._best_impact_on_follower != 0.0:
                 response.impact = self._best_impact_on_follower
-                self.get_logger().info(f"sending response to agent {request.i} with best impact value {response.impact}")
+                self.allowed_to_ask_for_worst = True
+                # self.get_logger().info(f"sending response to agent {request.i} with best impact value {response.impact}")
 
             else:
                 self.get_logger().info("Best impact not computed yet, queuing request")
                 self.pending_requests.append((request, response))
-                response.impact = 0.0
+                # response.impact = 0.0
         elif request.type == "worst":
             if request.i in self._worst_impact_on_leaders.keys():
                 response.impact = self._worst_impact_on_leaders[request.i]
@@ -149,7 +151,8 @@ class Controller(Node):
             else:
                 self.get_logger().info("Worst impact not computed yet, queuing request")
                 self.pending_requests.append((request, response))
-                response.impact = 0.0
+                # response.impact = 0.0
+        self.process_requests()
         return response
            
 
@@ -162,9 +165,9 @@ class Controller(Node):
         self.response_received[neighbour_id] = False
 
         def future_callback(fut):
-            if fut.result():
+            if fut.result().impact != 0.0:
                 self.impact_results[neighbour_id] = fut.result().impact
-                self.get_logger().error(f"Received result {fut.result().impact} from agent {neighbour_id}")
+                self.get_logger().info(f"Received result {fut.result().impact} from agent {neighbour_id}")
                 self.response_received[neighbour_id] = True
             else:
                 self.get_logger().error(f"Failed to get {impact_type} impact from agent {neighbour_id}")
@@ -181,18 +184,20 @@ class Controller(Node):
 
         while self.pending_requests:
             req, resp = self.pending_requests.pop(0)
-            if req.type == "best" and self._best_impact_on_follower != 0.0:
-                resp.impact = self._best_impact_on_follower
-                self.get_logger().info(f"sending response to agent {req.i} with best impact value {resp.impact}")
-                self.impact_server.succeed(resp)
-                # self.impact_server.send_response(resp, req)
-            elif req.type == "worst" and req.i in self._worst_impact_on_leaders.keys():
-                resp.impact = self._worst_impact_on_leaders[req.i]
-                self.get_logger().info(f"sending response to agent {req.i} with worst impact value {resp.impact}")
-                self.impact_server.succeed(resp)
-                # self.impact_server.send_response(resp, req)
-            else:
-                self.pending_requests.append((req, resp))  # Requeue if not ready
+            try:
+                if req.type == "best" and self._best_impact_on_follower != 0.0:
+                    resp.impact = self._best_impact_on_follower
+                    self.get_logger().info(f"sending response to agent {req.i} with best impact value {resp.impact}")
+                    self.impact_server.send_response(resp, req)
+                elif req.type == "worst" and req.i in self._worst_impact_on_leaders.keys():
+                    resp.impact = self._worst_impact_on_leaders[req.i]
+                    self.get_logger().info(f"sending response to agent {req.i} with worst impact value {resp.impact}")
+                    self.impact_server.send_response(resp, req)
+                else:
+                    self.pending_requests.append((req, resp))  # Requeue if not ready
+            except Exception as e:
+                self.get_logger().error(f"Failed to process request {req}: {str(e)}")
+                self.pending_requests.append((req, resp))  # Requeue on error
 
         
 
@@ -205,7 +210,8 @@ class Controller(Node):
         if self.agent_id not in self.leaf_nodes:
             self.compute_worst_impact_on_following_task()
 
-        if self.follower_neighbour is not None:
+        if self.follower_neighbour is not None and self.allowed_to_ask_for_worst:
+            self.allowed_to_ask_for_worst = False
             self.get_logger().info(f"sending a request to the follower {self.follower_neighbour} for the worst impact")
             self.call_impact_service(self.follower_neighbour, "worst")
             impact = self.impact_results.get(self.follower_neighbour, None)
@@ -217,26 +223,34 @@ class Controller(Node):
 
 
 
+    def request_leaders_best_impact(self):
+        for leader in self.leader_neighbours:
+                if not self.response_received.get(leader, False):
+                    self.call_impact_service(leader, "best")
+
 
     def service_loop(self):
         # Get the current time
         time_in_sec,_ = self.get_clock().now().seconds_nanoseconds()
         self.current_time = ca.vertcat(time_in_sec - self.initial_time)
+        
 
-        if self.agent_id not in self.leaf_nodes:
-            self.process_non_leaf_node()
-        else:
+        if self.agent_id in self.leaf_nodes:
             self.process_leaf_node()
-        self.process_requests()
+        else:
+            self.process_non_leaf_node()
+        
+
+
+
+
 
     def process_leaf_node(self):
-        self.send_best_impact_and_wait_for_worst_impact()
+        self.compute_gamma_and_best_impact_on_leading_task()
+        # self.send_best_impact_and_wait_for_worst_impact()
 
     def process_non_leaf_node(self):
-        for leader in self.leader_neighbours:
-            if not self.response_received.get(leader, False):
-                self.call_impact_service(leader, "best")
-        self.get_logger().info("checking if all best impacts are received...")
+
         if all(self.response_received.get(leader, False) for leader in self.leader_neighbours):
             self.get_logger().info("all best impacts are received")
             self.compute_gamma_tilde_values()
@@ -244,6 +258,10 @@ class Controller(Node):
                 self.send_best_impact_and_wait_for_worst_impact()
         else:
             self.get_logger().info("all best impacts are not received yet")
+            self.request_leaders_best_impact()
+        
+
+        
 
 
 
@@ -522,6 +540,11 @@ class Controller(Node):
             current_parameters["epsilon"] = self._worst_impact_from_follower
 
 
+        # Clean the stored values
+        self._gamma_tilde = {}
+        self._gamma = 1
+
+
         # Calculate the gradient values to check for convergence
         nabla_list = []
         inputs = {}
@@ -683,11 +706,11 @@ class Controller(Node):
 
 
             # Publishing the best impact to the follower
-            best_impact_msg = ImpactMsg()
-            best_impact_msg.i = self.agent_id
-            best_impact_msg.j = self.follower_neighbour
-            best_impact_msg.impact = self._best_impact_on_follower 
-            self.best_impact_pub.publish(best_impact_msg)
+            # best_impact_msg = ImpactMsg()
+            # best_impact_msg.i = self.agent_id
+            # best_impact_msg.j = self.follower_neighbour
+            # best_impact_msg.impact = self._best_impact_on_follower 
+            # self.best_impact_pub.publish(best_impact_msg)
             # self.get_logger().info(f"===Published best impact: {self._best_impact_on_follower}")
 
 
@@ -735,11 +758,11 @@ class Controller(Node):
                 self._worst_impact_on_leaders[leader_neighbour] = float(worst_impact_value)
 
                 # Publishing the worst impact to the leaders
-                worst_impact_msg = ImpactMsg()
-                worst_impact_msg.i = self.agent_id
-                worst_impact_msg.j = leader_neighbour
-                worst_impact_msg.impact = self._worst_impact_on_leaders[leader_neighbour]
-                self.worst_impact_pub.publish(worst_impact_msg)
+                # worst_impact_msg = ImpactMsg()
+                # worst_impact_msg.i = self.agent_id
+                # worst_impact_msg.j = leader_neighbour
+                # worst_impact_msg.impact = self._worst_impact_on_leaders[leader_neighbour]
+                # self.worst_impact_pub.publish(worst_impact_msg)
                 # self.get_logger().info(f"===Published worst impact for leader agent {leader_neighbour} with value: {self._worst_impact_on_leaders[leader_neighbour]}")
  
             
