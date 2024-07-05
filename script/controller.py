@@ -3,9 +3,11 @@ import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
 import tf2_ros
+import time
 from functools import partial
 import numpy as np
 import casadi as ca
+from rclpy.executors import MultiThreadedExecutor
 from typing import List, Dict, Tuple
 from std_msgs.msg import Int32
 import casadi.tools as ca_tools
@@ -21,6 +23,10 @@ from tf2_ros import LookupException
 
 
 class Controller(Node):
+    """
+    This class is a STL-QP (Signal Temporal Logic-Quadratic Programming) controller for omnidirectional robots and therefore does not consider the orientation of the robots.
+    It is responsible for solving the optimization problem and publishing the velocity commands to the agents. 
+    """
 
     def __init__(self):
         # Initialize the node
@@ -51,7 +57,6 @@ class Controller(Node):
         self.declare_parameter('robot_name', rclpy.Parameter.Type.STRING)
         self.declare_parameter('num_robots', rclpy.Parameter.Type.INTEGER)
         
-
         # Agent Information
         self.agent_name = self.get_parameter('robot_name').get_parameter_value().string_value
         self.agent_id = int(self.agent_name[-1])
@@ -59,13 +64,6 @@ class Controller(Node):
         self.total_agents = self.get_parameter('num_robots').get_parameter_value().integer_value
         self.agents : dict[int, Agent]= {} # position of all the agents in the system including self agent
         
-        # Service and Client Information 
-        self.ready_to_compute_gamma = False
-        self.allowed_to_ask_for_worst = False
-        self.pending_requests = []
-        self.response_received = {}
-        self.impact_results = {}
-
         # Information stored about your neighbours
         self.LeaderShipTokens_dict : Dict[tuple,int]= {}
         self._leadership_tokens : Dict[int,LeadershipToken] = {}
@@ -79,6 +77,14 @@ class Controller(Node):
         self._worst_impact_from_follower : float = 0.0             # this is the worse impact that the follower of your task will send you back
         self._best_impact_on_follower    : float = 0.0             # this is the best impact that you can have on the task you are leading
         
+        # Service and Client Information 
+        self.ready_to_compute_gamma = False
+        self._impact_backup : dict[int, float] = {}
+        self.impact_results : dict[int, float] = {}
+        for id in range(1, self.total_agents + 1):
+            self.impact_results[id] = 0.0
+            self._worst_impact_on_leaders[id] = 0.0
+            self._best_impact_from_leaders[id] = 0.0
 
         # Barriers and tasks
         self.barriers : list[BarrierFunction] = []
@@ -129,111 +135,73 @@ class Controller(Node):
         self.task_check_timer = self.create_timer(0.33, self.check_tasks_callback) 
 
 
-
-
     def impact_callback(self, request, response):
-        # self.get_logger().info(f"Received request from agent {request.i} for {request.type} impact")
+
+        start_time = time.time()
+        self.get_logger().info(f"Received request from agent {request.i} for {request.type} impact")
+
         if request.type == "best":
             if self._best_impact_on_follower != 0.0:
                 response.impact = self._best_impact_on_follower
-                self.allowed_to_ask_for_worst = True
-                # self.get_logger().info(f"sending response to agent {request.i} with best impact value {response.impact}")
-
+                self._impact_backup[request.i] = response.impact
+                self._best_impact_on_follower = 0.0
+                self.get_logger().info(f"sending response to agent {request.i} with best impact value {response.impact}")
             else:
-                self.get_logger().info("Best impact not computed yet, queuing request")
-                self.pending_requests.append((request, response))
-                # response.impact = 0.0
+                self.get_logger().info(f"best impact not computed yet, using backup value: {self._impact_backup.get(request.i, 0.0)}")
+                response.impact = self._impact_backup.get(request.i, 0.0)
+
         elif request.type == "worst":
-            if request.i in self._worst_impact_on_leaders.keys():
+            if self._worst_impact_on_leaders[request.i] != 0.0: 
                 response.impact = self._worst_impact_on_leaders[request.i]
+                self._impact_backup[request.i] = response.impact
+                self._worst_impact_on_leaders[request.i] = 0.0 
                 self.get_logger().info(f"sending response to agent {request.i} with worst impact value {response.impact}")
-
             else:
-                self.get_logger().info("Worst impact not computed yet, queuing request")
-                self.pending_requests.append((request, response))
-                # response.impact = 0.0
-        self.process_requests()
+                self.get_logger().info(f"worst impact not computed yet, using backup value: {self._impact_backup.get(request.i, 0.0)}")
+                response.impact = self._impact_backup.get(request.i, 0.0)
+
+        end_time = time.time()
+        self.get_logger().info(f"impact_callback execution time for agent {self.agent_id}: {end_time - start_time} seconds")
         return response
-           
+
+        
 
     def call_impact_service(self, neighbour_id: int, impact_type: str):
+
         request = Impact.Request()
         request.i = self.agent_id
         request.j = neighbour_id
         request.type = impact_type
+
         future = self.impact_clients[neighbour_id].call_async(request)
-        self.response_received[neighbour_id] = False
-
-        def future_callback(fut):
-            if fut.result().impact != 0.0:
-                self.impact_results[neighbour_id] = fut.result().impact
-                self.get_logger().info(f"Received result {fut.result().impact} from agent {neighbour_id}")
-                self.response_received[neighbour_id] = True
-            else:
-                self.get_logger().error(f"Failed to get {impact_type} impact from agent {neighbour_id}")
-                self.response_received[neighbour_id] = False
-
-        future.add_done_callback(future_callback)
+        future.add_done_callback(partial(self.future_callback))
         
+        executor = MultiThreadedExecutor()
+        executor.add_node(self)
 
-    def process_requests(self):
-        if self.pending_requests:
-            self.get_logger().info("Processing requests...")
+        rclpy.spin_until_future_complete(self, future, executor=executor, timeout_sec=0.2)
+
+        self.get_logger().info(f"This is how the future.result() looks like: {future.result()}")
+        
+        if future.done() and future.result() is not None:
+            self.get_logger().info(f"Received response from agent {neighbour_id} with impact value {future.result().impact}")
+            return future.result().impact
         else:
-            self.get_logger().info("No pending requests")
+            self.get_logger().error('Service call failed or timed out')
+            return None
 
-        while self.pending_requests:
-            req, resp = self.pending_requests.pop(0)
-            try:
-                if req.type == "best" and self._best_impact_on_follower != 0.0:
-                    resp.impact = self._best_impact_on_follower
-                    self.get_logger().info(f"sending response to agent {req.i} with best impact value {resp.impact}")
-                    self.impact_server.send_response(resp, req)
-                elif req.type == "worst" and req.i in self._worst_impact_on_leaders.keys():
-                    resp.impact = self._worst_impact_on_leaders[req.i]
-                    self.get_logger().info(f"sending response to agent {req.i} with worst impact value {resp.impact}")
-                    self.impact_server.send_response(resp, req)
-                else:
-                    self.pending_requests.append((req, resp))  # Requeue if not ready
-            except Exception as e:
-                self.get_logger().error(f"Failed to process request {req}: {str(e)}")
-                self.pending_requests.append((req, resp))  # Requeue on error
 
+    def future_callback(self, future):
+        self.get_logger().info("trying to get the result from the future_callback...")
+        try:
+            response = future.result()
+            self.get_logger().info(f"Response in future_callback: {response.impact}")
+        except Exception as e:
+            self.get_logger().info(f"Service call failed: {e}")
         
-
-    def send_best_impact_and_wait_for_worst_impact(self):
-
-        self.get_logger().info("computing gamma and best impact")
-        self.compute_gamma_and_best_impact_on_leading_task()
-        self.ready_to_compute_gamma = False
-
-        if self.agent_id not in self.leaf_nodes:
-            self.compute_worst_impact_on_following_task()
-
-        if self.follower_neighbour is not None and self.allowed_to_ask_for_worst:
-            self.allowed_to_ask_for_worst = False
-            self.get_logger().info(f"sending a request to the follower {self.follower_neighbour} for the worst impact")
-            self.call_impact_service(self.follower_neighbour, "worst")
-            impact = self.impact_results.get(self.follower_neighbour, None)
-            if self.response_received.get(self.follower_neighbour, False):#impact is not None:
-                self.get_logger().info(f"Received worst impact {impact} from follower {self.follower_neighbour}")
-                self._worst_impact_from_follower = impact
-            else: #TODO: Need a way to wait until the worst impact is received
-                self.get_logger().error(f"Failed to receive worst impact from follower {self.follower_neighbour}")
-
-
-
-    def request_leaders_best_impact(self):
-        for leader in self.leader_neighbours:
-                if not self.response_received.get(leader, False):
-                    self.call_impact_service(leader, "best")
 
 
     def service_loop(self):
-        # Get the current time
-        time_in_sec,_ = self.get_clock().now().seconds_nanoseconds()
-        self.current_time = ca.vertcat(time_in_sec - self.initial_time)
-        
 
         if self.agent_id in self.leaf_nodes:
             self.process_leaf_node()
@@ -241,25 +209,39 @@ class Controller(Node):
             self.process_non_leaf_node()
         
 
-
-
-
-
     def process_leaf_node(self):
+
+        self.get_logger().info("computing gamma and best impact")
         self.compute_gamma_and_best_impact_on_leading_task()
-        # self.send_best_impact_and_wait_for_worst_impact()
+        self.get_logger().info(f"sending a request to the follower {self.follower_neighbour} for the worst impact")
+        response = self.call_impact_service(self.follower_neighbour, "worst")
+        if response is not None:
+            self._worst_impact_from_follower = response
+
 
     def process_non_leaf_node(self):
 
-        if all(self.response_received.get(leader, False) for leader in self.leader_neighbours):
-            self.get_logger().info("all best impacts are received")
-            self.compute_gamma_tilde_values()
-            if self.ready_to_compute_gamma:
-                self.send_best_impact_and_wait_for_worst_impact()
-        else:
-            self.get_logger().info("all best impacts are not received yet")
-            self.request_leaders_best_impact()
+        for leader in self.leader_neighbours:
+            response = self.call_impact_service(leader, "best")
+            if response is not None:
+                self._best_impact_from_leaders[leader] = response
+
         
+        self.get_logger().info("all best impacts are received")
+        self.compute_gamma_tilde_values()
+
+        if self.ready_to_compute_gamma:
+            self.get_logger().info("computing gamma and best impact")
+            self.compute_gamma_and_best_impact_on_leading_task()
+            self.ready_to_compute_gamma = False
+            self.get_logger().info("computing worst impact")
+            self.compute_worst_impact_on_following_task()
+
+        if self.follower_neighbour is not None:
+            self.get_logger().info(f"sending a request to the follower {self.follower_neighbour} for the worst impact")
+            response = self.call_impact_service(self.follower_neighbour, "worst")
+            if response is not None:
+                self._worst_impact_from_follower = response
 
         
 
@@ -543,6 +525,7 @@ class Controller(Node):
         # Clean the stored values
         self._gamma_tilde = {}
         self._gamma = 1
+        self.ready_to_compute_gamma = False
 
 
         # Calculate the gradient values to check for convergence
@@ -550,7 +533,7 @@ class Controller(Node):
         inputs = {}
         for i, nabla_fun in enumerate(self.nabla_funs):
             inputs = {key: current_parameters[key] for key in self.nabla_inputs[i].keys()}
-            # self.get_logger().info(f"barrier {i+1} : {self.barrier_func[i].call(inputs)['value']}")
+            self.get_logger().info(f"barrier {i+1} : {self.barrier_func[i].call(inputs)['value']}")
             nabla_val = nabla_fun.call(inputs)["value"]
             nabla_list.append(ca.norm_2(nabla_val))
 
@@ -705,6 +688,7 @@ class Controller(Node):
 
 
 
+
             # Publishing the best impact to the follower
             # best_impact_msg = ImpactMsg()
             # best_impact_msg.i = self.agent_id
@@ -756,6 +740,7 @@ class Controller(Node):
                 worst_impact_value = np.dot(local_gardient_value.T,(g_value @ worst_input*self._gamma))
                 worst_impact_value = np.squeeze(worst_impact_value)
                 self._worst_impact_on_leaders[leader_neighbour] = float(worst_impact_value)
+                self.get_logger().info(f"worst impact for leader agent {leader_neighbour} is {self._worst_impact_on_leaders[leader_neighbour]}")
 
                 # Publishing the worst impact to the leaders
                 # worst_impact_msg = ImpactMsg()
@@ -831,7 +816,7 @@ class Controller(Node):
             self.barriers = self.create_barriers_from_tasks(self.task_msg_list)
             self.solver = self.get_qpsolver()
             self.service_timer = self.create_timer(0.33, self.service_loop)
-            self.control_loop_timer = self.create_timer(0.66, self.control_loop)
+            self.control_loop_timer = self.create_timer(0.33, self.control_loop)
         else:
             ready = Int32()
             ready.data = self.agent_id
