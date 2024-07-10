@@ -140,7 +140,7 @@ class Controller(Node):
         # Setup transform subscriber
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-        self.check_transform_timer = self.create_timer(0.33, self.transform_timer_callback) # 30 Hz = 0.333s
+        self.check_transform_timer = self.create_timer(0.1, self.transform_timer_callback) # 30 Hz = 0.333s
         
         # Wait until all the task messages have been received
         self.task_check_timer = self.create_timer(0.33, self.check_tasks_callback) 
