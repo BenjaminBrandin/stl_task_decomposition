@@ -218,7 +218,7 @@ class Controller(Node):
         
         executor = MultiThreadedExecutor()
         executor.add_node(self)
-        self.executor.spin_until_future_complete(self.future, timeout_sec=0.05)
+        self.executor.spin_until_future_complete(self.future, timeout_sec=0.1)
         # rclpy.spin_until_future_complete(self, self.future, executor=executor, timeout_sec=0.2)
 
         # rclpy.spin_until_future_complete(self, self.future, timeout_sec=0.2)

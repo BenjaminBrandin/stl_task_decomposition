@@ -131,7 +131,7 @@ class Controller(Node):
         self.impact_clients = {}
         for id in range(1, self.total_agents + 1):
             if id != self.agent_id:  # Skip creating a client for itself
-                client = self.create_client(Impact, f"/agent{id}/impact_service", callback_group=MutuallyExclusiveCallbackGroup())#self.client_cb_group)
+                client = self.create_client(Impact, f"/agent{id}/impact_service", callback_group=self.client_cb_group)
                 self.impact_clients[id] = client
                 while not client.wait_for_service(timeout_sec=1.0):
                     self.get_logger().info(f'Impact service for agent{id} not available, waiting...')
@@ -195,7 +195,7 @@ class Controller(Node):
         request.j = neighbour_id
         request.type = impact_type
 
-        future = self.impact_clients[neighbour_id].call(request)
+        future = self.impact_clients[neighbour_id].call_async(request)
         rclpy.spin_until_future_complete(self, future, timeout_sec=0.1)
         self.get_logger().info(f"This is how the future.result() from agent {neighbour_id} looks like: {future.result()}")
 
