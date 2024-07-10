@@ -1,7 +1,7 @@
 TASK_1:
   EDGE: [1, 2]
-  TYPE: "epsilon_position_closeness_predicate"
-  CENTER: [0.0, 0.0]
+  TYPE: "formation_predicate"
+  CENTER: [-1.0, -1.0]
   EPSILON: 2.0
   TEMP_OP: "AlwaysOperator"
   INTERVAL: [40, 70]

@@ -104,15 +104,15 @@ class Controller(Node):
         self.total_tasks = float('inf')
 
         # Setup publishers
-        self.best_impact_pub = self.create_publisher(ImpactMsg, "/best_impact", 100)
-        self.worst_impact_pub = self.create_publisher(ImpactMsg, "/worst_impact", 100)
+        # self.best_impact_pub = self.create_publisher(ImpactMsg, "/best_impact", 100)
+        # self.worst_impact_pub = self.create_publisher(ImpactMsg, "/worst_impact", 100)
         self.vel_pub = self.create_publisher(Twist, f"/agent{self.agent_id}/cmd_vel", 100)
         self.agent_pose_pub = self.create_publisher(PoseStamped, f"/agent{self.agent_id}/agent_pose", 10)
         self.ready_pub = self.create_publisher(Int32, "/controller_ready", 10)
 
         # Setup subscribers
-        self.create_subscription(ImpactMsg, "/best_impact", self.best_impact_callback, 100)
-        self.create_subscription(ImpactMsg, "/worst_impact", self.worst_impact_callback, 100)
+        # self.create_subscription(ImpactMsg, "/best_impact", self.best_impact_callback, 100)
+        # self.create_subscription(ImpactMsg, "/worst_impact", self.worst_impact_callback, 100)
         self.create_subscription(LeafNodes, "/leaf_nodes", self.leaf_nodes_callback, 10)
         self.create_subscription(Int32, "/numOfTasks", self.numOfTasks_callback, 10)
         self.create_subscription(TaskMsg, "/tasks", self.task_callback, 10)
@@ -215,14 +215,14 @@ class Controller(Node):
         
 
         if self._ready_to_run_service_loop:
-            start_time = time.time()
+            # start_time = time.time()
             if self.agent_id in self.leaf_nodes:
                 self.process_leaf_node()
             else:
                 
                 self.process_non_leaf_node()
-            end_time = time.time()
-            self.get_logger().info(f"service_timer execution time: {end_time - start_time} seconds")
+            # end_time = time.time()
+            # self.get_logger().info(f"service_timer execution time: {end_time - start_time} seconds")
         else:
             pass
         
@@ -894,32 +894,32 @@ class Controller(Node):
                 self.LeaderShipTokens_dict[normalized_edge] = leader
 
 
-    def best_impact_callback(self, msg):
-        """
-        Callback function for the best impact message.
+    # def best_impact_callback(self, msg):
+    #     """
+    #     Callback function for the best impact message.
         
-        Args:
-            msg (ImpactMsg): The best impact message.
-        """
-        if msg.i in self.leader_neighbours:
-            self._best_impact_from_leaders[msg.i] = msg.impact
-            # self.get_logger().info(f"Received best impact from agent {msg.i} with value {msg.impact}")
-        else:
-            pass 
+    #     Args:
+    #         msg (ImpactMsg): The best impact message.
+    #     """
+    #     if msg.i in self.leader_neighbours:
+    #         self._best_impact_from_leaders[msg.i] = msg.impact
+    #         # self.get_logger().info(f"Received best impact from agent {msg.i} with value {msg.impact}")
+    #     else:
+    #         pass 
 
     
-    def worst_impact_callback(self, msg):
-        """
-        Callback function that stores the worst impact value which agent i calculated for the task that agent j is leading.
+    # def worst_impact_callback(self, msg):
+    #     """
+    #     Callback function that stores the worst impact value which agent i calculated for the task that agent j is leading.
         
-        Args:
-            msg (ImpactMsg): The worst impact message.
-        """
-        if msg.j == self.agent_id:
-            self._worst_impact_from_follower = msg.impact
-            # self.get_logger().info(f"Received worst impact from agent {msg.i} with value {msg.impact}")
-        else:
-            pass
+    #     Args:
+    #         msg (ImpactMsg): The worst impact message.
+    #     """
+    #     if msg.j == self.agent_id:
+    #         self._worst_impact_from_follower = msg.impact
+    #         # self.get_logger().info(f"Received worst impact from agent {msg.i} with value {msg.impact}")
+    #     else:
+    #         pass
         
 
         

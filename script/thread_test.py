@@ -8,6 +8,7 @@ from functools import partial
 import numpy as np
 import casadi as ca
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from typing import List, Dict, Tuple
 from std_msgs.msg import Int32
 import casadi.tools as ca_tools
@@ -35,7 +36,7 @@ class Controller(Node):
         # Velocity Command Message
         self.max_velocity = 1.0
         self.vel_cmd_msg = Twist()
-        self.counter = 0
+
 
         # Optimization Problem
         self.solver : ca.Function = None
@@ -64,6 +65,9 @@ class Controller(Node):
         self.latest_self_transform = TransformStamped()
         self.total_agents = self.get_parameter('num_robots').get_parameter_value().integer_value
         self.agents : dict[int, Agent]= {} # position of all the agents in the system including self agent
+        self._ready_to_run_service_loop = False
+        self._ready_to_run_control_loop = False
+
         
         # Information stored about your neighbours
         self.LeaderShipTokens_dict : Dict[tuple,int]= {}
@@ -80,6 +84,10 @@ class Controller(Node):
         
         # Service and Client Information 
         self.ready_to_compute_gamma = False
+        self.topic_cb_group = ReentrantCallbackGroup()
+        self.timer_cb_group = ReentrantCallbackGroup()
+        self.client_cb_group = MutuallyExclusiveCallbackGroup()
+        self.service_cb_group = ReentrantCallbackGroup()
         self._impact_backup : dict[int, float] = {}
         self.impact_results : dict[int, float] = {}
         for id in range(1, self.total_agents + 1):
@@ -111,46 +119,19 @@ class Controller(Node):
         self.create_subscription(LeaderShipTokens, "/tokens", self.tokens_callback, 10)
         for id in range(1, self.total_agents + 1):
             self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", 
-                                    partial(self.other_agent_pose_callback, agent_id=id), 10)
+                                    partial(self.other_agent_pose_callback, agent_id=id), 10, callback_group=self.topic_cb_group)
 
-
-        # if self.agent_id == 1:
-        #     self.impact_server_1 = self.create_service(Impact, "/impact_service_1", self.impact_callback)
-        #     self.impact_server_1_2 = self.create_service(Impact, "/impact_service_1_2", self.impact_callback)
-
-        #     self.client_1 = self.create_client(Impact, "/impact_service_2")
-        #     self.client_2 = self.create_client(Impact, "/impact_service_3")
-
-
-        #     while not self.client_1.wait_for_service(timeout_sec=1.0):
-        #             self.get_logger().info(f'Impact service for agent 2 not available, waiting...')
-        #     while not self.client_2.wait_for_service(timeout_sec=1.0):
-        #             self.get_logger().info(f'Impact service for agent 3 not available, waiting...')
-        
-        # elif self.agent_id == 2:
-        #     self.impact_server_2 = self.create_service(Impact, "/impact_service_2", self.impact_callback)
-            
-        #     self.client = self.create_client(Impact, "/impact_service_1")
-        #     while not self.client.wait_for_service(timeout_sec=1.0):
-        #             self.get_logger().info(f'Impact service for agent 1 not available, waiting...')
-        
-        # elif self.agent_id == 3:
-        #     self.impact_server_3 = self.create_service(Impact, "/impact_service_3", self.impact_callback)
-            
-        #     self.client = self.create_client(Impact, "/impact_service_1_2")
-        #     while not self.client.wait_for_service(timeout_sec=1.0):
-        #             self.get_logger().info(f'Impact service for agent 1 not available, waiting...')
 
 
         # Setup service server
-        self.impact_server = self.create_service(Impact, f"/agent{self.agent_id}/impact_service", self.impact_callback)
+        self.impact_server = self.create_service(Impact, f"/agent{self.agent_id}/impact_service", self.impact_callback, callback_group=self.service_cb_group)
 
 
         # Setup service clients for each other agent
         self.impact_clients = {}
         for id in range(1, self.total_agents + 1):
             if id != self.agent_id:  # Skip creating a client for itself
-                client = self.create_client(Impact, f"/agent{id}/impact_service")
+                client = self.create_client(Impact, f"/agent{id}/impact_service", callback_group=self.client_cb_group)
                 self.impact_clients[id] = client
                 while not client.wait_for_service(timeout_sec=1.0):
                     self.get_logger().info(f'Impact service for agent{id} not available, waiting...')
@@ -160,10 +141,19 @@ class Controller(Node):
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         
-        self.check_transform_timer = self.create_timer(0.1, self.transform_timer_callback) # 30 Hz = 0.333s
+        # This timer is used to update the agent's pose
+        self.check_transform_timer = self.create_timer(0.3, self.transform_timer_callback, callback_group=self.timer_cb_group) # 30 Hz = 0.333s
         
-        # Wait until all the task messages have been received
-        self.task_check_timer = self.create_timer(0.33, self.check_tasks_callback) 
+        # This timer is used to wait untill all the tasks are received before it initializes the controller
+        self.task_check_timer = self.create_timer(0.8, self.check_tasks_callback, callback_group=self.timer_cb_group) 
+
+        # This timer is used to continuously update the agent's best and/or worst impact
+        self.service_timer = self.create_timer(0.5, self.service_loop, callback_group=self.timer_cb_group) 
+
+        # This timer is used to continuously compute the optimized input
+        self.control_loop_timer = self.create_timer(0.5, self.control_loop, callback_group=self.timer_cb_group) 
+
+
 
 
     def impact_callback(self, request, response):
@@ -175,7 +165,7 @@ class Controller(Node):
             if self._best_impact_on_follower != 0.0:
                 response.impact = float(self._best_impact_on_follower)
                 self._impact_backup[request.i] = response.impact
-                self._best_impact_on_follower = 0.0
+                # self._best_impact_on_follower = 0.0
                 self.get_logger().info(f"sending response to agent {request.i} with best impact value {response.impact}")
             else:
                 self.get_logger().info(f"best impact not computed yet, using backup value: {self._impact_backup.get(request.i, 0.0)}")
@@ -185,7 +175,7 @@ class Controller(Node):
             if self._worst_impact_on_leaders[request.i] != 0.0: 
                 response.impact = float(self._worst_impact_on_leaders[request.i])
                 self._impact_backup[request.i] = response.impact
-                self._worst_impact_on_leaders[request.i] = 0.0 
+                # self._worst_impact_on_leaders[request.i] = 0.0 
                 self.get_logger().info(f"sending response to agent {request.i} with worst impact value {response.impact}")
             else:
                 self.get_logger().info(f"worst impact not computed yet, using backup value: {self._impact_backup.get(request.i, 0.0)}")
@@ -204,55 +194,38 @@ class Controller(Node):
         request.i = self.agent_id
         request.j = neighbour_id
         request.type = impact_type
-        
-        # if self.agent_id == 1:
-        #     if neighbour_id == 2:
-        #        self.future = self.client_1.call_async(request)
-        #     elif neighbour_id == 3:
-        #        self.future = self.client_2.call_async(request)
-        # else:
-        #    self.future = self.client.call_async(request)
-        
-        self.future = self.impact_clients[neighbour_id].call_async(request)
-        self.future.add_done_callback(partial(self.future_callback))
-        
-        executor = MultiThreadedExecutor()
-        executor.add_node(self)
-        self.executor.spin_until_future_complete(self.future, timeout_sec=0.1)
-        # rclpy.spin_until_future_complete(self, self.future, executor=executor, timeout_sec=0.2)
 
-        # rclpy.spin_until_future_complete(self, self.future, timeout_sec=0.2)
-        self.get_logger().info(f"This is how the future.result() looks like: {self.future.result()}")
+        future = self.impact_clients[neighbour_id].call_async(request)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=0.1)
+        self.get_logger().info(f"This is how the future.result() from agent {neighbour_id} looks like: {future.result()}")
 
-        
-        if self.future.done() and self.future.result() is not None:
-            self.get_logger().info(f"Received response from agent {neighbour_id} with impact value {self.future.result().impact}")
-            return self.future.result().impact
+        if future.done() and future.result() is not None:
+            self.get_logger().info(f"Future is done and received response from agent {neighbour_id} with impact value {future.result().impact}")
+            return future.result().impact
         else:
             self.get_logger().error('Service call failed or timed out')
             return 0.0
 
 
-    def future_callback(self, future):
-        self.get_logger().info("trying to get the result from the future_callback...")
-        try:
-            response = future.result()
-            self.get_logger().info(f"Response in future_callback: {response.impact}")
-        except Exception as e:
-            self.get_logger().info(f"Service call failed: {e}")
+
         
 
 
-    def service_loop(self):
-        # start_time = time.time()
-        if self.agent_id in self.leaf_nodes:
-            self.process_leaf_node()
+    def service_loop(self): # takes 0.01-1.57 sec to run. Looks like it increases each time it is called
+        
+
+        if self._ready_to_run_service_loop:
+            start_time = time.time()
+            if self.agent_id in self.leaf_nodes:
+                self.process_leaf_node()
+            else:
+                
+                self.process_non_leaf_node()
+            end_time = time.time()
+            self.get_logger().info(f"service_timer execution time: {end_time - start_time} seconds")
         else:
-            
-            self.process_non_leaf_node()
-        self.control_loop()
-        # end_time = time.time()
-        # self.get_logger().info(f"service_loop execution time: {end_time - start_time} seconds")
+            pass
+        
         
         
 
@@ -263,14 +236,17 @@ class Controller(Node):
         self.get_logger().info(f"sending a request to the follower {self.follower_neighbour} for the worst impact")
         response = self.call_impact_service(self.follower_neighbour, "worst")
         if response is not None:
+            self.get_logger().info(f"I now have the worst impact from follower {self.follower_neighbour}")
             self._worst_impact_from_follower = response
 
 
     def process_non_leaf_node(self):
-        
+        # THE FUTURE SEEMS TO NEVER COMPLETE, IT ALLWAYS TRIGGER TIMEOUT
         for leader in self.leader_neighbours:
+            self.get_logger().info(f"sending a request to the leader {leader} for the best impact")
             response = self.call_impact_service(leader, "best")
             if response is not None:
+                self.get_logger().info(f"I now have the best impact from leader {leader}")
                 self._best_impact_from_leaders[leader] = response
 
         self.get_logger().info("all best impacts are received")
@@ -289,6 +265,7 @@ class Controller(Node):
             self.get_logger().info(f"sending a request to the follower {self.follower_neighbour} for the worst impact")
             response = self.call_impact_service(self.follower_neighbour, "worst")
             if response is not None:
+                self.get_logger().info(f"I now have the worst impact from follower {self.follower_neighbour}")
                 self._worst_impact_from_follower = response
 
         
@@ -549,65 +526,63 @@ class Controller(Node):
 
         return ca.vertcat(*constraints)
 
-
-    def control_loop(self):
+    # Register it to a Mutually Exclusive Callback Group if it should never be executed in parallel to itself. 
+    # An example case could be a timer callback that runs a control loop that publishes control commands.
+    def control_loop(self): # takes 0.002 sec to run
         """This is the main control loop of the controller. It calculates the optimal input and publishes the velocity command to the cmd_vel topic."""
         
-        # while rclpy.ok():
 
-        # Get the current time
-        time_in_sec,_ = self.get_clock().now().seconds_nanoseconds()
-        self.current_time = ca.vertcat(time_in_sec - self.initial_time)
+        if self._ready_to_run_control_loop:
+            # start_time = time.time()
+            # Get the current time
+            time_in_sec,_ = self.get_clock().now().seconds_nanoseconds()
+            self.current_time = ca.vertcat(time_in_sec - self.initial_time)
 
-        # Fill the structure with the current state and time
-        current_parameters = self.parameters(0)
+            # Fill the structure with the current state and time
+            current_parameters = self.parameters(0)
 
-        # self.service_loop()
+            # Fill the structure with the values
+            current_parameters["time"] = self.current_time
+            current_parameters["gamma"] = self._gamma
+            for id in self.agents.keys():
+                current_parameters[f'state_{id}'] = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
 
-        # Fill the structure with the values
-        current_parameters["time"] = self.current_time
-        current_parameters["gamma"] = self._gamma
-        for id in self.agents.keys():
-            current_parameters[f'state_{id}'] = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
-
-        if self.follower_neighbour is not None:
-            current_parameters["epsilon"] = self._worst_impact_from_follower
-
-
-        # Calculate the gradient values to check for convergence
-        nabla_list = []
-        inputs = {}
-        for i, nabla_fun in enumerate(self.nabla_funs):
-            inputs = {key: current_parameters[key] for key in self.nabla_inputs[i].keys()}
-            # self.get_logger().info(f"barrier {i+1} : {self.barrier_func[i].call(inputs)['value']}")
-            nabla_val = nabla_fun.call(inputs)["value"]
-            nabla_list.append(ca.norm_2(nabla_val))
+            if self.follower_neighbour is not None:
+                current_parameters["epsilon"] = self._worst_impact_from_follower
 
 
-        # Solve the optimization problem 
-        if any(ca.norm_2(val) < 1e-10 for val in nabla_list):
-            optimal_input = ca.MX.zeros(2 + len(self.slack_variables))
+            # Calculate the gradient values to check for convergence
+            nabla_list = []
+            inputs = {}
+            for i, nabla_fun in enumerate(self.nabla_funs):
+                inputs = {key: current_parameters[key] for key in self.nabla_inputs[i].keys()}
+                # self.get_logger().info(f"barrier {i+1} : {self.barrier_func[i].call(inputs)['value']}")
+                nabla_val = nabla_fun.call(inputs)["value"]
+                nabla_list.append(ca.norm_2(nabla_val))
+
+
+            # Solve the optimization problem 
+            if any(ca.norm_2(val) < 1e-10 for val in nabla_list):
+                optimal_input = ca.MX.zeros(2 + len(self.slack_variables))
+            else:
+                sol = self.solver(p=current_parameters, ubg=0)
+                optimal_input = sol['x']
+        
+            # Publish the velocity command
+            linear_velocity = optimal_input[:2]
+            clipped_linear_velocity = np.clip(linear_velocity, -self.max_velocity, self.max_velocity)
+            self.vel_cmd_msg.linear.x = clipped_linear_velocity[0][0]
+            self.vel_cmd_msg.linear.y = clipped_linear_velocity[1][0]
+        
+            self.vel_pub.publish(self.vel_cmd_msg)
+            # self.get_logger().info(f"Published velocity command: {self.vel_cmd_msg}")
+
+        
+            # end_time = time.time()
+            # self.get_logger().info(f"control_loop execution time: {end_time - start_time} seconds")
         else:
-            sol = self.solver(p=current_parameters, ubg=0)
-            optimal_input = sol['x']
-    
-        # Publish the velocity command
-        linear_velocity = optimal_input[:2]
-        clipped_linear_velocity = np.clip(linear_velocity, -self.max_velocity, self.max_velocity)
-        self.vel_cmd_msg.linear.x = clipped_linear_velocity[0][0]
-        self.vel_cmd_msg.linear.y = clipped_linear_velocity[1][0]
-    
-        self.vel_pub.publish(self.vel_cmd_msg)
-        # self.get_logger().info(f"Published velocity command: {self.vel_cmd_msg}")
-
-        # Clean the stored values
-        # self._gamma_tilde = {}
-        # self._gamma = 1
-        # self.ready_to_compute_gamma = False
-
-        # end_time = time.time()
-        # self.get_logger().info(f"control_loop execution time: {end_time - start_time} seconds")
-
+            pass
+        
 
         
 
@@ -702,7 +677,7 @@ class Controller(Node):
     def compute_gamma_and_best_impact_on_leading_task(self) : 
 
         # now it is the time to check if you have all the available information
-        if len(self.leader_neighbours) == 0 : # leaf node case # or self.agent_id in self.leaf_nodes
+        if len(self.leader_neighbours) == 0 : 
             self._gamma = 1
         elif len(self._gamma_tilde) != len(self.leader_neighbours) :
             raise RuntimeError(f"The list of gamma tilde values is not complete. You have {len(self._gamma_tilde)} values, but you should have {len(self.leader_neighbours)} values from each of the leaders. Make sure you compute the gamma_tilde value for each leader at this iteration.")
@@ -745,11 +720,11 @@ class Controller(Node):
 
 
             # Publishing the best impact to the follower
-            best_impact_msg = ImpactMsg()
-            best_impact_msg.i = self.agent_id
-            best_impact_msg.j = self.follower_neighbour
-            best_impact_msg.impact = self._best_impact_on_follower 
-            self.best_impact_pub.publish(best_impact_msg)
+            # best_impact_msg = ImpactMsg()
+            # best_impact_msg.i = self.agent_id
+            # best_impact_msg.j = self.follower_neighbour
+            # best_impact_msg.impact = self._best_impact_on_follower 
+            # self.best_impact_pub.publish(best_impact_msg)
             # self.get_logger().info(f"===Published best impact: {self._best_impact_on_follower}")
 
 
@@ -798,11 +773,11 @@ class Controller(Node):
                 self.get_logger().info(f"worst impact for leader agent {leader_neighbour} is {self._worst_impact_on_leaders[leader_neighbour]}")
 
                 # Publishing the worst impact to the leaders
-                worst_impact_msg = ImpactMsg()
-                worst_impact_msg.i = self.agent_id
-                worst_impact_msg.j = leader_neighbour
-                worst_impact_msg.impact = self._worst_impact_on_leaders[leader_neighbour]
-                self.worst_impact_pub.publish(worst_impact_msg)
+                # worst_impact_msg = ImpactMsg()
+                # worst_impact_msg.i = self.agent_id
+                # worst_impact_msg.j = leader_neighbour
+                # worst_impact_msg.impact = self._worst_impact_on_leaders[leader_neighbour]
+                # self.worst_impact_pub.publish(worst_impact_msg)
                 # self.get_logger().info(f"===Published worst impact for leader agent {leader_neighbour} with value: {self._worst_impact_on_leaders[leader_neighbour]}")
  
             
@@ -860,9 +835,10 @@ class Controller(Node):
         self.task_msg_list.append(msg)
 
 
-    def check_tasks_callback(self):
+    def check_tasks_callback(self): # else: takes 7.5e⁻05 sec to run and if takes 1.3 sec to run
         """Check if all tasks have been received."""
-        if len(self.task_msg_list) == self.total_tasks:
+        if len(self.task_msg_list) == self.total_tasks: 
+
             self.task_check_timer.cancel()  # Stop the timer if all tasks are received
             self.get_logger().info("==All tasks received==")
             self.initial_time,_ = self.get_clock().now().seconds_nanoseconds()
@@ -870,20 +846,25 @@ class Controller(Node):
             # Create the tasks and the barriers
             self.barriers = self.create_barriers_from_tasks(self.task_msg_list)
             self.solver = self.get_qpsolver()
-            self.service_timer = self.create_timer(0.3, self.service_loop)
-            # self.control_loop()
-            # self.control_loop_timer = self.create_timer(0.1, self.control_loop)
+
+            self._ready_to_run_service_loop = True
+            self._ready_to_run_control_loop = True
+
         else:
             ready = Int32()
             ready.data = self.agent_id
             self.ready_pub.publish(ready)
 
 
-    def transform_timer_callback(self):
+    def transform_timer_callback(self): # takes 0.0006 sec to run
+        
+            
         try:
+            # start_time = time.time()
             trans = self.tf_buffer.lookup_transform("world", "nexus_"+self.agent_name, Time())
             # update self tranform
             self.latest_self_transform = trans
+
 
             # Send your position to the other agents
             position_msg = PoseStamped()
@@ -891,10 +872,11 @@ class Controller(Node):
             position_msg.pose.position.x = trans.transform.translation.x
             position_msg.pose.position.y = trans.transform.translation.y
             self.agent_pose_pub.publish(position_msg)
-
+            # end_time = time.time()
+            # self.get_logger().info(f"transform_timer execution time: {end_time - start_time} seconds")
         except LookupException as e:
             self.get_logger().error('failed to get transform {} \n'.format(repr(e)))
-
+        
 
     def tokens_callback(self, msg):
         """
@@ -948,10 +930,12 @@ def main(args=None):
     rclpy.init(args=args)
 
     node = Controller()
-
+    executor = MultiThreadedExecutor()
+    executor.add_node(node)
 
     try:
-        rclpy.spin(node)
+        # rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
 
