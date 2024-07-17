@@ -49,9 +49,9 @@ class Controller(Node):
         self.barrier_func = []
         self.nabla_funs = []
         self.nabla_inputs = []
-        self.initial_time :float = 0
-        self.current_time :float = 0
-        self._gamma : float = 1
+        self.initial_time :float = 0.0
+        self.current_time :float = 0.0
+        self._gamma : float = 1.0
         self._gamma_tilde :dict[int,float] = {}
         self.A, self.b, self.input_verticies = create_approximate_ball_constraints2d(radius=self.max_velocity, points_number=40)
         
@@ -67,6 +67,7 @@ class Controller(Node):
         self.agents : dict[int, Agent]= {} # position of all the agents in the system including self agent
         self._ready_to_run_service_loop = False
         self._ready_to_run_control_loop = False
+        self._wait_for_future = False
 
         
         # Information stored about your neighbors
@@ -83,6 +84,9 @@ class Controller(Node):
         self._best_impact_on_follower    : float = 0.0             # this is the best impact that you can have on the task you are leading
         
         # Callback Groups
+        self.rc_group = ReentrantCallbackGroup()
+        self.mc_group = MutuallyExclusiveCallbackGroup()
+
         self.topic_cb_group = ReentrantCallbackGroup()
         self.timer_cb_group = ReentrantCallbackGroup()
         self.client_cb_group = MutuallyExclusiveCallbackGroup()
@@ -117,12 +121,12 @@ class Controller(Node):
         self.create_subscription(LeaderShipTokens, "/tokens", self.tokens_callback, 10)
         for id in range(1, self.total_agents + 1):
             self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", 
-                                    partial(self.other_agent_pose_callback, agent_id=id), 10, callback_group=self.topic_cb_group)
+                                    partial(self.other_agent_pose_callback, agent_id=id), 10, callback_group=self.rc_group)
 
 
 
         # Setup service server
-        self.impact_server = self.create_service(Impact, f"/agent{self.agent_id}/impact_service", self.impact_callback, callback_group=self.service_cb_group)
+        self.impact_server = self.create_service(Impact, f"/agent{self.agent_id}/impact_service", self.impact_callback, callback_group=self.rc_group)
 
 
         # Setup service clients for each other agent
@@ -140,18 +144,18 @@ class Controller(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         
         # This timer is used to update the agent's pose
-        self.check_transform_timer = self.create_timer(0.3, self.transform_timer_callback, callback_group=self.timer_cb_group) # 30 Hz = 0.333s
+        self.check_transform_timer = self.create_timer(0.3, self.transform_timer_callback, callback_group=self.rc_group) # 30 Hz = 0.333s
         
         # This timer is used to wait untill all the tasks are received before it initializes the controller
-        self.task_check_timer = self.create_timer(0.8, self.check_tasks_callback, callback_group=self.timer_cb_group) 
+        self.task_check_timer = self.create_timer(0.8, self.check_tasks_callback, callback_group=self.rc_group) 
 
         # This timer is used to continuously update the agent's best and/or worst impact
-        self.service_timer = self.create_timer(0.5, self.service_loop, callback_group=self.timer_cb_group) 
+        self.service_timer = self.create_timer(0.5, self.service_loop, callback_group=self.mc_group) 
 
         # This timer is used to continuously compute the optimized input
         # Register it to a Mutually Exclusive Callback Group if it should never be executed in parallel to itself. 
         # An example case could be a timer callback that runs a control loop that publishes control commands.
-        self.control_loop_timer = self.create_timer(0.5, self.control_loop, callback_group=self.timer_cb_group) 
+        self.control_loop_timer = self.create_timer(0.6, self.control_loop, callback_group=self.mc_group) 
 
 
 
@@ -195,20 +199,27 @@ class Controller(Node):
         request.j = neighbor_id
         request.type = impact_type
 
-        future = self.impact_clients[neighbor_id].call_async(request)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=0.1)
-        self.get_logger().info(f"This is how the future.result() from agent {neighbor_id} looks like: {future.result()}")
+        self.future = self.impact_clients[neighbor_id].call_async(request)
+        self.future.add_done_callback(self.future_callback)
 
-        if future.done() and future.result() is not None:
-            self.get_logger().info(f"Future is done and received response from agent {neighbor_id} with impact value {future.result().impact}")
-            return future.result().impact
+        while not self._wait_for_future:
+            pass
+            
+        self._wait_for_future = False
+        # rclpy.spin_until_future_complete(self, self.future, timeout_sec=0.3) #this is the problem, it never completes
+        self.get_logger().info(f"This is how the self.future.result() from agent {neighbor_id} looks like: {self.future.result()}")
+
+        if self.future.done() and self.future.result() is not None:
+            self.get_logger().info(f"Future is done and received response from agent {neighbor_id} with impact value {self.future.result().impact}")
+            return self.future.result().impact
         else:
-            self.get_logger().error('Service call failed or timed out')
-            return 0.0
+            self.get_logger().error(f'Service call failed or timed out, sending backup value {float(self._impact_backup.get(neighbor_id, 0.0))}')
+            return float(self._impact_backup.get(neighbor_id, 0.0))#0.0
 
 
+    def future_callback(self):
+        self._wait_for_future = True
 
-        
 
 
     def service_loop(self): # takes 0.01-1.57 sec to run. Looks like it increases each time it is called
@@ -533,11 +544,14 @@ class Controller(Node):
         if self._ready_to_run_control_loop:
             # start_time = time.time()
             # Get the current time
+            self.get_logger().info(f"Running control loop for agent {self.agent_id}")
             time_in_sec,_ = self.get_clock().now().seconds_nanoseconds()
             self.current_time = ca.vertcat(time_in_sec - self.initial_time)
 
             # Fill the structure with the current state and time
             current_parameters = self.parameters(0)
+
+            # self.service_loop()
 
             # Fill the structure with the values
             current_parameters["time"] = self.current_time
@@ -547,14 +561,14 @@ class Controller(Node):
 
             if self.follower_neighbor is not None:
                 current_parameters["epsilon"] = self._worst_impact_from_follower
-
+            self.get_logger().info(f"Have all the current parameters")
 
             # Calculate the gradient values to check for convergence
             nabla_list = []
             inputs = {}
             for i, nabla_fun in enumerate(self.nabla_funs):
                 inputs = {key: current_parameters[key] for key in self.nabla_inputs[i].keys()}
-                # self.get_logger().info(f"barrier {i+1} : {self.barrier_func[i].call(inputs)['value']}")
+                self.get_logger().info(f"barrier {i+1} : {self.barrier_func[i].call(inputs)['value']}")
                 nabla_val = nabla_fun.call(inputs)["value"]
                 nabla_list.append(ca.norm_2(nabla_val))
 
@@ -564,6 +578,7 @@ class Controller(Node):
                 optimal_input = ca.MX.zeros(2 + len(self.slack_variables))
             else:
                 sol = self.solver(p=current_parameters, ubg=0)
+                self.get_logger().info(f"Optimization problem solved with status")
                 optimal_input = sol['x']
         
             # Publish the velocity command
@@ -575,10 +590,13 @@ class Controller(Node):
             self.vel_pub.publish(self.vel_cmd_msg)
             # self.get_logger().info(f"Published velocity command: {self.vel_cmd_msg}")
 
-        
+            # reset values for the next iteration
+            self._gamma_tilde = {}
+            self._gamma = 1.0
             # end_time = time.time()
             # self.get_logger().info(f"control_loop execution time: {end_time - start_time} seconds")
         else:
+            self.get_logger().info("Not ready to run control loop yet...")
             pass
         
 
@@ -682,6 +700,7 @@ class Controller(Node):
         else:
             gamma_tildes_list = list(self._gamma_tilde.values())
             self._gamma = min(gamma_tildes_list + [1]) # take the minimum of the gamma tilde values
+            self.get_logger().info(f"Computed gamma value is {self._gamma}")
             
             if self._gamma<=0 :
                 self.get_logger().error(f"The computed gamma value is negative. This breakes the process. The gamma value is {self._gamma}")
