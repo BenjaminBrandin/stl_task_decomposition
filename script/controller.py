@@ -42,11 +42,12 @@ class Controller(Node):
         self.solver : ca.Function = None
         self.parameters : ca_tools.structure3.msymStruct = None
         self.input_vector = ca.MX.sym('input', 2)
+        self.enable_collision_avoidance: bool = False
         self.slack_variables = {}
         self.scale_factor = 3
         self.dummy_scalar = ca.MX.sym('dummy_scalar', 1)
         self.alpha_fun = ca.Function('alpha_fun', [self.dummy_scalar], [self.scale_factor * self.dummy_scalar])
-        # self._collision_constraint_fun :ca. Function =  self._get_collision_avoidance_barrier()
+        self._collision_constraint_fun :ca. Function =  self._get_collision_avoidance_barrier()
         self.barrier_func = []
         self.nabla_funs = []
         self.nabla_inputs = []
@@ -121,7 +122,7 @@ class Controller(Node):
         self.create_subscription(LeaderShipTokens, "/tokens", self.tokens_callback, 10)
         for id in range(1, self.total_agents + 1):
             self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", 
-                                    partial(self.other_agent_pose_callback, agent_id=id), 10, callback_group=self.rc_group)
+                                    partial(self.agent_pose_callback, agent_id=id), 10, callback_group=self.rc_group)
 
 
 
@@ -423,6 +424,11 @@ class Controller(Node):
         if self.follower_neighbor is not None: # if the agent does not have a follower then it does not need to compute the best impact for the follower and won't get the worst impact from the follower
             parameter_list += [ca_tools.entry("epsilon", shape=1)]
         
+        if self.enable_collision_avoidance:
+            parameter_list +=  [ca_tools.entry('collision_pos_'+str(unique_identifier),shape=2) for unique_identifier in range(1, self.total_agents + 1)]  # one parameter for the state of any obstacle met by the agent
+            parameter_list +=  [ca_tools.entry('collision_switch_'+str(unique_identifier),shape=1)  for unique_identifier in range(1, self.total_agents + 1)]  # used to switch off a collision avoidance constraint when not needed
+            parameter_list +=  [ca_tools.entry('collision_load_'+str(unique_identifier),shape=1)  for unique_identifier in range(1, self.total_agents + 1)]  # used to switch off a collision avoidance constraint when not needed
+            
         parameters = ca_tools.struct_symMX(parameter_list)
         return parameters
 
@@ -453,9 +459,13 @@ class Controller(Node):
         # Create the constraints for the optimization problem --- 'g' ---
         input_constraints = self.A @ self.input_vector - self.parameters["gamma"] * self.b 
         barrier_constraints    = self.generate_barrier_constraints(self.relevant_barriers)
-        # collision_constraints  = self._get_collision_avoidance_constraints(self.parameters) # NOT IMPLEMENTED YET/ NEEDS FIXING
         slack_constraints      = - ca.vertcat(*list(self.slack_variables.values()))
-        constraints            = ca.vertcat(input_constraints, barrier_constraints, slack_constraints)#, collision_constraints)
+        
+        if self.enable_collision_avoidance:
+            collision_constraints = self._get_collision_avoidance_constraints(self.parameters) # NOT IMPLEMENTED YET/ NEEDS FIXING
+            constraints           = ca.vertcat(input_constraints, barrier_constraints, slack_constraints, collision_constraints)
+        else:
+            constraints           = ca.vertcat(input_constraints, barrier_constraints, slack_constraints)
 
         # Create the decision variables for the optimization problem --- 'x' ---
         slack_vector = ca.vertcat(*list(self.slack_variables.values()))
@@ -540,48 +550,49 @@ class Controller(Node):
 
 
 
+    # Creates the function
+    def _get_collision_avoidance_barrier(self)->None :
+        
+        x  = ca.MX.sym("x",2) # state of the agent (which also constains the position)
+        y  = ca.MX.sym("y",2) # position of the obstacle
+        switch = ca.MX.sym("switch",1) # switch off the constraint when not needed
+        load   = ca.MX.sym("load",1) # switch off the constraint when not needed
+        
+        collision_radius = 0.5 # assuming the two agents are 1m big
+        
+        barrier = (x[:2]-y).T@(x[:2]-y) - (2*collision_radius)**2 # here the collsion radius is assumed to be 1 for each object 
 
-    # def _get_collision_avoidance_barrier(self)->None :
+        g_xu = np.eye(2)@self.input_vector
         
+        db_dx = ca.jacobian(barrier,x)
+
+        # Evaluate alpha function with the barrier
+        # alpha_barrier = self.alpha_fun(barrier)
+        # constraint = db_dx @ g_xu + load * (alpha_barrier)
+
+        constraint =  db_dx@g_xu + load*( 0.5 * barrier) # if load = 0.5 -> cooperative collsion. If load =1 , then non cooperative
         
-    #     x  = ca.MX.sym("x",2) # state of the agent (which also constains the position)
-    #     y  = ca.MX.sym("y",2) # position of the obstacke
-    #     nu = ca.MX.sym("y",1) # position of the agent
-    #     switch = ca.MX.sym("switch",1) # switch off the constraint when not needed
-    #     load   = ca.MX.sym("load",1) # switch off the constraint when not needed
+        #(-1) factor needed to turn the constraint into negative g(x)<=0
+        # switch -> it will be 1 if it is needed the constraint and 0 if not
+        collision_constraint_fun = ca.Function("collision_avoidance",[x,y,switch,load,self.input_vector],
+                                          [-1*(constraint)*switch]) # create a function that will be used to compute the collision avoidance constraints
         
-    #     collision_radius = 0.5 # assuming the two agents are 1m big
-        
-    #     barrier = (x[:2]-y).T@(x[:2]-y) - (2*collision_radius)**2 # here the collsion radius is assumed to be 1 for each object 
-    #     # f_x = self._dynamical_model.f_fun(x)
-    #     g_xu = self._dynamical_model.g_fun(x)@self.input_vector
-        
-    #     db_dx = ca.jacobian(barrier,x)
-        
-    #     constraint =  db_dx@g_xu +  load*(  self.alpha_fun * barrier + nu) # if load = 0.5 -> cooperative collsion. If loead =1 , then non cooperative
-        
-    #     #(-1) factor needed to turn the constraint into negative g(x)<=0
-    #     # switch -> it will be 1 if it is needed the constraint and 0 if not
-    #     collision_constraint_fun = ca.Function("collision_avoidance",[x,y,nu,switch,load,self.input_vector],
-    #                                       [-1*(constraint)*switch]) # create a function that will be used to compute the collision avoidance constraints
-        
-    #     return collision_constraint_fun
+        return collision_constraint_fun
 
 
-    # def _get_collision_avoidance_constraints(self,parameters) -> ca.MX:
-    #     """ Here we create the collision avoidance solver """
+    # Gets the value
+    def _get_collision_avoidance_constraints(self,parameters) -> ca.MX:
+        """ Here we create the collision avoidance solver """
         
+        collision_contraints = []
+        for id in range(1, self.total_agents + 1):
+            collision_contraints += [self._collision_constraint_fun( parameters["state_"+str(self.agent_id)],
+                                                                        parameters["collision_pos_"+str(id)],
+                                                                        parameters["collision_switch_"+str(id)],
+                                                                        parameters["collision_load_"+str(id)],
+                                                                        self.input_vector)]
         
-    #     collision_contraints = []
-    #     for jj in range(self.total_agents-1):
-    #         collision_contraints += [self._collision_constraint_fun( parameters["state_"+str(self.agent_id)],
-    #                                                                     parameters["collision_pos_"+str(jj)],
-    #                                                                     parameters["collision_nu_"+str(jj)],
-    #                                                                     parameters["collision_switch_"+str(jj)],
-    #                                                                     parameters["collision_load_"+str(jj)],
-    #                                                                     self.input_vector)]
-        
-    #     return ca.vertcat(*collision_contraints)
+        return ca.vertcat(*collision_contraints)
 
 
 
@@ -609,6 +620,35 @@ class Controller(Node):
             if self.follower_neighbor is not None:
                 current_parameters["epsilon"] = self._worst_impact_from_follower
             self.get_logger().info(f"I have all the current parameters. Ready to solve the optimization problem...")
+
+
+            # if self.enable_collision_avoidance:
+            #     for id in range(1, self.total_agents + 1):
+            #         current_parameters["collision_pos_"+str(id)] = ca.vertcat(self.agents[id].state[0],self.agents[id].state[1])
+            #         current_parameters["collision_switch_"+str(id)] = 0
+            #         current_parameters["collision_load_"+str(id)] = 0.5
+
+            if self.enable_collision_avoidance:
+                # Position of the current agent
+                current_agent_pos = ca.vertcat(self.agents[self.agent_id].state[0], self.agents[self.agent_id].state[1])
+                current_parameters["collision_pos_" + str(self.agent_id)] = current_agent_pos
+                current_parameters["collision_switch_" + str(self.agent_id)] = 0
+                current_parameters["collision_load_" + str(self.agent_id)] = 0.5
+                
+                for id in self.agents.keys():
+                    if id != self.agent_id:
+                        other_agent_pos = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
+                        current_parameters["collision_pos_" + str(id)] = other_agent_pos
+                        current_parameters["collision_switch_" + str(id)] = 0
+                        current_parameters["collision_load_" + str(id)] = 0.5
+                    
+                        distance = ca.norm_2(ca.vertcat(current_agent_pos[0] - other_agent_pos[0], current_agent_pos[1] - other_agent_pos[1]))
+                    
+                        # Check if the distance is less than 0.5
+                        if distance < 1.5:
+                            current_parameters["collision_switch_" + str(id)] = 1
+                    
+                    
 
             # Calculate the gradient values to check for convergence
             nabla_list = []
@@ -835,7 +875,7 @@ class Controller(Node):
 
     #  ==================== Callbacks ====================
 
-    def other_agent_pose_callback(self, msg, agent_id):
+    def agent_pose_callback(self, msg, agent_id):
         """
         Callback function to store all the agents' poses.
         
