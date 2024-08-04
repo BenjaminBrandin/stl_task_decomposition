@@ -46,6 +46,7 @@ class Controller(Node):
         self.scale_factor = 3
         self.dummy_scalar = ca.MX.sym('dummy_scalar', 1)
         self.alpha_fun = ca.Function('alpha_fun', [self.dummy_scalar], [self.scale_factor * self.dummy_scalar])
+        # self._collision_constraint_fun :ca. Function =  self._get_collision_avoidance_barrier()
         self.barrier_func = []
         self.nabla_funs = []
         self.nabla_inputs = []
@@ -86,11 +87,10 @@ class Controller(Node):
         # Callback Groups
         self.rc_group = ReentrantCallbackGroup()
         self.mc_group = MutuallyExclusiveCallbackGroup()
-
-        self.topic_cb_group = ReentrantCallbackGroup()
-        self.timer_cb_group = ReentrantCallbackGroup()
         self.client_cb_group = MutuallyExclusiveCallbackGroup()
-        self.service_cb_group = ReentrantCallbackGroup() 
+        # self.topic_cb_group = ReentrantCallbackGroup()
+        # self.timer_cb_group = ReentrantCallbackGroup()
+        # self.service_cb_group = ReentrantCallbackGroup() 
 
         # Service and Client Information
         self.ready_to_compute_gamma = False 
@@ -144,7 +144,7 @@ class Controller(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         
         # This timer is used to update the agent's pose
-        self.check_transform_timer = self.create_timer(0.2, self.transform_timer_callback, callback_group=self.rc_group) # 30 Hz = 0.333s
+        self.check_transform_timer = self.create_timer(0.2, self.transform_timer_callback, callback_group=self.rc_group) 
         
         # This timer is used to wait untill all the tasks are received before it initializes the controller
         self.task_check_timer = self.create_timer(1.0, self.check_tasks_callback, callback_group=self.rc_group) 
@@ -153,8 +153,6 @@ class Controller(Node):
         self.service_timer = self.create_timer(0.5, self.service_loop, callback_group=self.mc_group) 
 
         # This timer is used to continuously compute the optimized input
-        # Register it to a Mutually Exclusive Callback Group if it should never be executed in parallel to itself. 
-        # An example case could be a timer callback that runs a control loop that publishes control commands.
         self.control_loop_timer = self.create_timer(0.5, self.control_loop, callback_group=self.mc_group) 
 
 
@@ -455,8 +453,9 @@ class Controller(Node):
         # Create the constraints for the optimization problem --- 'g' ---
         input_constraints = self.A @ self.input_vector - self.parameters["gamma"] * self.b 
         barrier_constraints    = self.generate_barrier_constraints(self.relevant_barriers)
+        # collision_constraints  = self._get_collision_avoidance_constraints(self.parameters) # NOT IMPLEMENTED YET/ NEEDS FIXING
         slack_constraints      = - ca.vertcat(*list(self.slack_variables.values()))
-        constraints            = ca.vertcat(input_constraints, barrier_constraints, slack_constraints)
+        constraints            = ca.vertcat(input_constraints, barrier_constraints, slack_constraints)#, collision_constraints)
 
         # Create the decision variables for the optimization problem --- 'x' ---
         slack_vector = ca.vertcat(*list(self.slack_variables.values()))
@@ -514,18 +513,22 @@ class Controller(Node):
             dbdt     = partial_time_derivative_fun.call(named_inputs)["value"]
             alpha_b  = barrier.associated_alpha_function(barrier_fun.call(named_inputs)["value"])
 
-
-            # check edge for leading agent
-            leader = self.LeaderShipTokens_dict[tuple(sorted([self.agent_id, neighbor_id]))]         
-
-            if leader == self.agent_id:
+            # if it is a self task
+            if neighbor_id == self.agent_id:
                 load_sharing = 1
-                barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b) + self.parameters['epsilon'])
-            elif leader == neighbor_id:
-                load_sharing = 1/2  
-                slack = ca.MX.sym(f"slack", 1)
-                self.slack_variables[neighbor_id] = slack
-                barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b) + slack)     
+                barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b))
+            else:
+                # check edge for leading agent
+                leader = self.LeaderShipTokens_dict[tuple(sorted([self.agent_id, neighbor_id]))]         
+
+                if leader == self.agent_id:
+                    load_sharing = 1
+                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b) + self.parameters['epsilon'])
+                elif leader == neighbor_id:
+                    load_sharing = 1/2  
+                    slack = ca.MX.sym(f"slack", 1)
+                    self.slack_variables[neighbor_id] = slack
+                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b) + slack)     
 
             constraints.append(barrier_constraint)
             self.barrier_func.append(barrier_fun)
@@ -533,6 +536,55 @@ class Controller(Node):
             self.nabla_inputs.append(named_inputs)
 
         return ca.vertcat(*constraints)
+
+
+
+
+
+    # def _get_collision_avoidance_barrier(self)->None :
+        
+        
+    #     x  = ca.MX.sym("x",2) # state of the agent (which also constains the position)
+    #     y  = ca.MX.sym("y",2) # position of the obstacke
+    #     nu = ca.MX.sym("y",1) # position of the agent
+    #     switch = ca.MX.sym("switch",1) # switch off the constraint when not needed
+    #     load   = ca.MX.sym("load",1) # switch off the constraint when not needed
+        
+    #     collision_radius = 0.5 # assuming the two agents are 1m big
+        
+    #     barrier = (x[:2]-y).T@(x[:2]-y) - (2*collision_radius)**2 # here the collsion radius is assumed to be 1 for each object 
+    #     # f_x = self._dynamical_model.f_fun(x)
+    #     g_xu = self._dynamical_model.g_fun(x)@self.input_vector
+        
+    #     db_dx = ca.jacobian(barrier,x)
+        
+    #     constraint =  db_dx@g_xu +  load*(  self.alpha_fun * barrier + nu) # if load = 0.5 -> cooperative collsion. If loead =1 , then non cooperative
+        
+    #     #(-1) factor needed to turn the constraint into negative g(x)<=0
+    #     # switch -> it will be 1 if it is needed the constraint and 0 if not
+    #     collision_constraint_fun = ca.Function("collision_avoidance",[x,y,nu,switch,load,self.input_vector],
+    #                                       [-1*(constraint)*switch]) # create a function that will be used to compute the collision avoidance constraints
+        
+    #     return collision_constraint_fun
+
+
+    # def _get_collision_avoidance_constraints(self,parameters) -> ca.MX:
+    #     """ Here we create the collision avoidance solver """
+        
+        
+    #     collision_contraints = []
+    #     for jj in range(self.total_agents-1):
+    #         collision_contraints += [self._collision_constraint_fun( parameters["state_"+str(self.agent_id)],
+    #                                                                     parameters["collision_pos_"+str(jj)],
+    #                                                                     parameters["collision_nu_"+str(jj)],
+    #                                                                     parameters["collision_switch_"+str(jj)],
+    #                                                                     parameters["collision_load_"+str(jj)],
+    #                                                                     self.input_vector)]
+        
+    #     return ca.vertcat(*collision_contraints)
+
+
+
 
 
     def control_loop(self): # takes 0.002 sec to run
