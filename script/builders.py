@@ -1327,7 +1327,7 @@ def create_barrier_from_task(task:StlTask, initial_conditions:List[Agent], alpha
     # check that all the agents are present
     if not all(any(agent_id == agent.id for agent in initial_conditions) for agent_id in contributing_agents):
         raise ValueError("The initial conditions for the contributing agents are not complete. Contributing agents are " + str(contributing_agents) + 
-                         " and the initial conditions are given for " + str(initial_conditions.keys()))
+                         " and the initial conditions are given for [" + str(initial_conditions[0].id) + ", " + str(initial_conditions[1].id)+ "]")
     
     # # check that the sates sizes match
     for agent in initial_conditions:
