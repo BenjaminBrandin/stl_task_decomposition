@@ -73,7 +73,6 @@ class Controller(Node):
 
         # Information stored about your neighbors
         self.LeaderShipTokens_dict : Dict[tuple,int]= {}
-        # self._leadership_tokens : Dict[int,LeadershipToken] = {}
         self.follower_neighbor : int = None
         self.leader_neighbors : list[int] = []
         self.leaf_nodes : list[int] = []
@@ -88,9 +87,6 @@ class Controller(Node):
         self.rc_group = ReentrantCallbackGroup()
         self.mc_group = MutuallyExclusiveCallbackGroup()
         self.client_cb_group = MutuallyExclusiveCallbackGroup()
-        # self.topic_cb_group = ReentrantCallbackGroup()
-        # self.timer_cb_group = ReentrantCallbackGroup()
-        # self.service_cb_group = ReentrantCallbackGroup() 
 
         # Service and Client Information
         self.ready_to_compute_gamma = False 
@@ -122,7 +118,6 @@ class Controller(Node):
         for id in range(1, self.total_agents + 1):
             self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", 
                                     partial(self.agent_pose_callback, agent_id=id), 10, callback_group=self.rc_group)
-
 
 
         # Setup service server
@@ -161,7 +156,6 @@ class Controller(Node):
     def impact_callback(self, request, response):
 
         # self.get_logger().info(f"Received request from agent {request.i} for {request.type} impact")
-
         if request.type == "best":
             if self._best_impact_on_follower != 0.0:
                 response.impact = float(self._best_impact_on_follower)
@@ -182,7 +176,6 @@ class Controller(Node):
                 # self.get_logger().info(f"worst impact not computed yet, using backup value: {self._impact_backup.get(request.i, 0.0)}")
                 response.impact = float(self._impact_backup.get(request.i, 0.0))
 
- 
         return response
 
         
@@ -236,6 +229,7 @@ class Controller(Node):
         if response is not None:
             # self.get_logger().info(f"I now have the worst impact from follower {self.follower_neighbor}")
             self._worst_impact_from_follower = response
+
 
 
     def process_non_leaf_node(self):
@@ -318,11 +312,9 @@ class Controller(Node):
 
                 if self.agent_id == self.LeaderShipTokens_dict[normalized_edge]: 
                     barrier_you_are_leading = barrier
-
                 else:
                     follower_barriers.append(barrier)
 
-        
         return barrier_you_are_leading, follower_barriers, independent_barrier
     
 
@@ -435,10 +427,8 @@ class Controller(Node):
             The cost function is a quadratic function of the input vector and the slack variables where the slack variables are used to enforce the barrier constraints.
         
         """
-        # Create the impact solver that will be used to compute the best and worst impacts on the barriers (NEEDS FIXING)
+        # Create the impact solver that will be used to compute the best and worst impacts on the barriers
         self._impact_solver : ImpactSolverLP = ImpactSolverLP(agent=self.agents[self.agent_id], max_velocity=self.max_velocity)
-
-        
 
         # get the neighbors of the current agent
         self.get_leader_and_follower_neighbors()
@@ -477,7 +467,6 @@ class Controller(Node):
         qp = {'x': opt_vector, 'f': cost, 'g': constraints, 'p': self.parameters}
         solver = ca.qpsol('sol', 'qpoases', qp, {'printLevel': 'none'})
 
-
         return solver
 
 
@@ -503,7 +492,6 @@ class Controller(Node):
             else :
                 neighbor_id = self.agent_id
             
-
             # Create the named inputs for the barrier function
             named_inputs = {"state_"+str(id): self.parameters["state_"+str(id)] for id in barrier.contributing_agents}
             named_inputs["time"] = self.parameters["time"]
@@ -559,11 +547,9 @@ class Controller(Node):
         g_xu = np.eye(2)@self.input_vector
         db_dx = ca.jacobian(barrier,x)
 
-        # Evaluate alpha function with the barrier # TRY THIS INSTEAD OF 0.5
+        # Evaluate alpha function with the barrier
         alpha_barrier = self.alpha_fun(barrier)
         constraint = db_dx @ g_xu + load * (alpha_barrier) # if load = 0.5 -> cooperative collsion. If load =1 , then non cooperative
-
-        # constraint =  db_dx@g_xu + load*( 0.5 * barrier) 
         
         #(-1) factor needed to turn the constraint into negative g(x)<=0
         # switch -> it will be 1 if it is needed the constraint and 0 if not
@@ -622,7 +608,7 @@ class Controller(Node):
                         self.get_logger().info(f"Distance between agent {self.agent_id} and agent {id}: {distance}")
                     
                         current_parameters["collision_pos_" + str(id)] = other_agent_pos
-                        current_parameters["collision_load_" + str(id)] = 0.5 # TRY 1.0
+                        current_parameters["collision_load_" + str(id)] = 0.5 
                         
                         if distance < 1.0:
                             current_parameters["collision_switch_" + str(id)] = 1.0
@@ -639,6 +625,7 @@ class Controller(Node):
                 self.get_logger().info(f"barrier {i+1} : {self.barrier_func[i].call(inputs)['value']}")
                 nabla_val = nabla_fun.call(inputs)["value"]
                 nabla_list.append(ca.norm_2(nabla_val))
+
             self.get_logger().info(f"Norm of the gradient values: {nabla_list}")
 
 
@@ -647,8 +634,8 @@ class Controller(Node):
                 optimal_input = ca.MX.zeros(2 + len(self.slack_variables))
             else:
                 sol = self.solver(p=current_parameters, ubg=0)
-                # self.get_logger().info(f"Optimization problem solved")
                 optimal_input = sol['x']
+
                 self.get_logger().info(f"Optimal input: {optimal_input}")
                 self.get_logger().info(f"Optimal constraints: {sol['g'][self.num_of_planes_for_approx:]}") #[self.num_of_planes_for_approx:] skips the input constraints
         
@@ -659,7 +646,6 @@ class Controller(Node):
             self.vel_cmd_msg.linear.y = clipped_linear_velocity[1][0]
         
             self.vel_pub.publish(self.vel_cmd_msg)
-            # self.get_logger().info(f"Published velocity command: {self.vel_cmd_msg}")
 
             # reset values for the next iteration
             self._gamma_tilde = {}
@@ -769,7 +755,6 @@ class Controller(Node):
         else:
             gamma_tildes_list = list(self._gamma_tilde.values())
             self._gamma = min(gamma_tildes_list + [1]) # take the minimum of the gamma tilde values
-            # self.get_logger().info(f"Computed gamma value is {self._gamma}")
             
             if self._gamma<=0 :
                 self.get_logger().error(f"The computed gamma value is negative. This breakes the process. The gamma value is {self._gamma}")
@@ -843,10 +828,6 @@ class Controller(Node):
                 worst_impact_value = np.dot(local_gardient_value.T,(g_value @ worst_input*self._gamma))
                 worst_impact_value = np.squeeze(worst_impact_value)
                 self._worst_impact_on_leaders[leader_neighbor] = float(worst_impact_value)
-                # self.get_logger().info(f"worst impact for leader agent {leader_neighbor} is {self._worst_impact_on_leaders[leader_neighbor]}")
-
-
-
 
 
 
@@ -898,7 +879,7 @@ class Controller(Node):
         self.task_msg_list.append(msg)
 
 
-    def check_tasks_callback(self): # else: takes 7.5e⁻05 sec to run and if takes 1.3 sec to run
+    def check_tasks_callback(self): 
         """Check if all tasks have been received."""
         if len(self.task_msg_list) == self.total_tasks: 
 
@@ -919,7 +900,7 @@ class Controller(Node):
             self.ready_pub.publish(ready)
 
 
-    def transform_timer_callback(self): # takes 0.0006 sec to run
+    def transform_timer_callback(self): 
         
             
         try:
@@ -968,7 +949,6 @@ def main(args=None):
     executor.add_node(node)
 
     try:
-        # rclpy.spin(node)
         executor.spin()
     except KeyboardInterrupt:
         pass
