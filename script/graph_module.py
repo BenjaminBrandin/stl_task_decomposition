@@ -140,6 +140,23 @@ def create_task_graph_from_edges(edge_list:Union[List[EdgeTaskContainer], List[T
     
     return task_graph
 
+def fixed_communication_graph(states: Dict[int, np.ndarray], communication_edges: List[Tuple[int, int]]) -> nx.Graph:
+    """
+    Create a communication graph that is telling which states are communicating with each other.
+
+    Args:
+        states (Dict[int, np.ndarray]): A dictionary containing the initial states of the agents.
+        communication_edges (List[Tuple[int, int]]): A list of tuples representing the communication edges.
+
+    Returns:
+        comm_graph (nx.Graph): The communication graph.
+    """    
+
+    comm_graph = nx.Graph()
+    comm_graph.add_nodes_from(states.keys())
+    comm_graph.add_edges_from(communication_edges)
+    
+    return comm_graph
 
 def create_communication_graph_from_states(states: Dict[int, np.ndarray], communication_radius: float) -> nx.Graph:
     """

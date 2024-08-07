@@ -34,7 +34,7 @@ class Controller(Node):
         super().__init__('controller')
 
         # Velocity Command Message
-        self.max_velocity = 1.0
+        self.max_velocity = 2.0
         self.vel_cmd_msg = Twist()
 
 
@@ -42,7 +42,7 @@ class Controller(Node):
         self.solver : ca.Function = None
         self.parameters : ca_tools.structure3.msymStruct = None
         self.input_vector = ca.MX.sym('input', 2)
-        self.enable_collision_avoidance: bool = True
+        self.enable_collision_avoidance: bool = False
         self.slack_variables = {}
         self.scale_factor = 3
         self.dummy_scalar = ca.MX.sym('dummy_scalar', 1)
@@ -109,6 +109,7 @@ class Controller(Node):
         self.vel_pub = self.create_publisher(Twist, f"/agent{self.agent_id}/cmd_vel", 100)
         self.agent_pose_pub = self.create_publisher(PoseStamped, f"/agent{self.agent_id}/agent_pose", 10)
         self.ready_pub = self.create_publisher(Int32, "/controller_ready", 10)
+        self.sent_ready_flag = False
 
         # Setup subscribers
         self.create_subscription(LeafNodes, "/leaf_nodes", self.leaf_nodes_callback, 10)
@@ -139,10 +140,10 @@ class Controller(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         
         # This timer is used to update the agent's pose
-        self.check_transform_timer = self.create_timer(0.2, self.transform_timer_callback, callback_group=self.rc_group) 
+        self.check_transform_timer = self.create_timer(0.3, self.transform_timer_callback, callback_group=self.rc_group) 
         
         # This timer is used to wait untill all the tasks are received before it initializes the controller
-        self.task_check_timer = self.create_timer(1.0, self.check_tasks_callback, callback_group=self.rc_group) 
+        self.task_check_timer = self.create_timer(0.6, self.check_tasks_callback, callback_group=self.rc_group) 
 
         # This timer is used to continuously update the agent's best and/or worst impact
         self.service_timer = self.create_timer(0.4, self.service_loop, callback_group=self.mc_group) 
@@ -196,7 +197,7 @@ class Controller(Node):
         self._wait_for_future = False
 
         if self.future.done() and self.future.result() is not None:
-            self.get_logger().info(f"Future is done and received response from agent {neighbor_id} with impact value {self.future.result().impact}")
+            # self.get_logger().info(f"Future is done and received response from agent {neighbor_id} with impact value {self.future.result().impact}")
             return self.future.result().impact
         else:
             self.get_logger().error(f'Service call failed or timed out, sending backup value {float(self._impact_backup.get(neighbor_id, 0.0))}')
@@ -542,13 +543,13 @@ class Controller(Node):
         load   = ca.MX.sym("load",1)    # switch off the constraint when not needed
 
         collision_radius = 0.5                                    # assuming the two agents are 1m big
-        barrier = (x[:2]-y).T@(x[:2]-y) - (2*collision_radius)**2 # here the collsion radius is assumed to be 1 for each object 
+        barrier = (x-y).T@(x-y) - (2*collision_radius)**2         # here the collsion radius is assumed to be 1 for each object 
 
-        g_xu = np.eye(2)@self.input_vector
+        g_xu = np.eye(self.agents[self.agent_id].state.size)@self.input_vector
         db_dx = ca.jacobian(barrier,x)
 
         # Evaluate alpha function with the barrier
-        alpha_barrier = self.alpha_fun(barrier)
+        alpha_barrier = 0.5*barrier                        #self.alpha_fun(barrier-0.01)
         constraint = db_dx @ g_xu + load * (alpha_barrier) # if load = 0.5 -> cooperative collsion. If load =1 , then non cooperative
         
         #(-1) factor needed to turn the constraint into negative g(x)<=0
@@ -610,7 +611,7 @@ class Controller(Node):
                         current_parameters["collision_pos_" + str(id)] = other_agent_pos
                         current_parameters["collision_load_" + str(id)] = 0.5 
                         
-                        if distance < 1.0:
+                        if distance < 2.0:
                             current_parameters["collision_switch_" + str(id)] = 1.0
                         else:
                             current_parameters["collision_switch_" + str(id)] = 0.0 
@@ -895,15 +896,12 @@ class Controller(Node):
             self._ready_to_run_control_loop = True
 
         else:
-            ready = Int32()
-            ready.data = self.agent_id
-            self.ready_pub.publish(ready)
-
+            pass
 
     def transform_timer_callback(self): 
-        
-            
+           
         try:
+
             trans = self.tf_buffer.lookup_transform("world", "nexus_"+self.agent_name, Time())
             # update self tranform
             self.latest_self_transform = trans
@@ -915,9 +913,18 @@ class Controller(Node):
             position_msg.pose.position.y = trans.transform.translation.y
             self.agent_pose_pub.publish(position_msg)
 
+            # Send the ready message to the manager one time
+            if not self.sent_ready_flag:
+                self.sent_ready_flag = True
+                ready = Int32()
+                ready.data = self.agent_id
+                self.ready_pub.publish(ready)
+            
         except LookupException as e:
             self.get_logger().error('failed to get transform {} \n'.format(repr(e)))
         
+
+
 
     def tokens_callback(self, msg):
         """

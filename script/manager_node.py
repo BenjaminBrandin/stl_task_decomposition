@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 from stl_decomposition_msgs.msg import TaskMsg, EdgeLeaderShip, LeaderShipTokens, LeafNodes
 from ament_index_python.packages import get_package_share_directory
 from .decomposition_module import computeNewTaskGraph
-from .graph_module import create_communication_graph_from_states, create_task_graph_from_edges
+from .graph_module import create_communication_graph_from_states, create_task_graph_from_edges, fixed_communication_graph
 from .dynamics_module import Agent, LeadershipToken
 from .builders import (StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, go_to_goal_predicate_2d, 
                       formation_predicate, epsilon_position_closeness_predicate)
@@ -49,6 +49,7 @@ class Manager(Node):
         self.agents: dict[int, Agent] = {}
         self.total_tasks: int = 0
         communication_radius: float = 4
+        self.fixed_communication: bool = True
         self.bool_msg :bool = False
         self.ready_controllers : list[int] = []
 
@@ -70,6 +71,8 @@ class Manager(Node):
             get_package_share_directory(pkg_name), config_folder_subpath, 'initial_conditions.yaml')
         tasks_yaml_path = os.path.join(
             get_package_share_directory(pkg_name), config_folder_subpath, 'tasks.yaml')
+        fixed_communication_yaml_path = os.path.join(
+            get_package_share_directory(pkg_name), config_folder_subpath, 'fixed_communications.yaml')
 
         # Load the initial states and the tasks from the YAML files
         with open(start_pos_yaml_path, 'r') as file:
@@ -77,6 +80,9 @@ class Manager(Node):
 
         with open(tasks_yaml_path, 'r') as file:
             self.tasks = yaml.safe_load(file)
+
+        with open(fixed_communication_yaml_path, 'r') as file:
+            self.fixed_communications = yaml.safe_load(file)
 
         # Create the Agent objects and store them in a dictionary
         start_positions = {}
@@ -91,7 +97,15 @@ class Manager(Node):
         task_edges = [tuple(task["EDGE"]) for task in self.tasks.values()]
 
         # Creating the graphs
-        self.comm_graph = create_communication_graph_from_states(start_positions, communication_radius)  
+        communication_edges = [tuple(edge["agents"]) for edge in self.fixed_communications.values()]
+
+        if self.fixed_communication:
+            self.comm_graph = fixed_communication_graph(start_positions, communication_edges)  # creates a communication graph using yaml file with fixed edges.
+        else:
+            self.comm_graph = create_communication_graph_from_states(start_positions, communication_radius)  # creates a communication graph using yaml file with fixed edges.
+        
+        
+
         self.task_graph = create_task_graph_from_edges(edge_list = task_edges) # creates an empty task graph
         self.initial_task_graph = self.task_graph.copy()
 
