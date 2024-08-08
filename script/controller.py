@@ -42,7 +42,7 @@ class Controller(Node):
         self.solver : ca.Function = None
         self.parameters : ca_tools.structure3.msymStruct = None
         self.input_vector = ca.MX.sym('input', 2)
-        self.enable_collision_avoidance: bool = False
+        self.enable_collision_avoidance: bool = True
         self.slack_variables = {}
         self.scale_factor = 3
         self.dummy_scalar = ca.MX.sym('dummy_scalar', 1)
@@ -534,7 +534,7 @@ class Controller(Node):
 
 
 
-    # Creates the function
+
     def _get_collision_avoidance_barrier(self)->None:
 
         x  = ca.MX.sym("x",2)           # state of the agent (which also constains the position)
@@ -542,6 +542,7 @@ class Controller(Node):
         switch = ca.MX.sym("switch",1)  # switch off the constraint when not needed
         load   = ca.MX.sym("load",1)    # switch off the constraint when not needed
 
+        
         collision_radius = 0.5                                    # assuming the two agents are 1m big
         barrier = (x-y).T@(x-y) - (2*collision_radius)**2         # here the collsion radius is assumed to be 1 for each object 
 
@@ -549,7 +550,7 @@ class Controller(Node):
         db_dx = ca.jacobian(barrier,x)
 
         # Evaluate alpha function with the barrier
-        alpha_barrier = 0.5*barrier                        #self.alpha_fun(barrier-0.01)
+        alpha_barrier = 0.5*barrier                        
         constraint = db_dx @ g_xu + load * (alpha_barrier) # if load = 0.5 -> cooperative collsion. If load =1 , then non cooperative
         
         #(-1) factor needed to turn the constraint into negative g(x)<=0
@@ -565,7 +566,7 @@ class Controller(Node):
         """ Here we create the collision avoidance solver """
         
         collision_contraints = []
-        for id in range(1, self.total_agents + 1):
+        for id in range(1, self.total_agents + 1): # Reduce the number of constraints by making the agent only avoid its leader_neighbors
             if id != self.agent_id:
                 collision_contraints += [self._collision_constraint_fun(parameters["state_"+str(self.agent_id)],
                                                                         parameters["collision_pos_"+str(id)],
@@ -609,12 +610,14 @@ class Controller(Node):
                         self.get_logger().info(f"Distance between agent {self.agent_id} and agent {id}: {distance}")
                     
                         current_parameters["collision_pos_" + str(id)] = other_agent_pos
-                        current_parameters["collision_load_" + str(id)] = 0.5 
+                        # current_parameters["collision_load_" + str(id)] = 1.0
                         
                         if distance < 2.0:
                             current_parameters["collision_switch_" + str(id)] = 1.0
+                            current_parameters["collision_load_" + str(id)] = 1.0
                         else:
-                            current_parameters["collision_switch_" + str(id)] = 0.0 
+                            current_parameters["collision_switch_" + str(id)] = 0.0
+                            current_parameters["collision_load_" + str(id)] = 0.0 
                         
 
                         
@@ -914,12 +917,12 @@ class Controller(Node):
             self.agent_pose_pub.publish(position_msg)
 
             # Send the ready message to the manager one time
-            if not self.sent_ready_flag:
-                self.sent_ready_flag = True
-                ready = Int32()
-                ready.data = self.agent_id
-                self.ready_pub.publish(ready)
-            
+            # if not self.sent_ready_flag:
+            #     self.sent_ready_flag = True
+            ready = Int32()
+            ready.data = self.agent_id
+            self.ready_pub.publish(ready)
+        
         except LookupException as e:
             self.get_logger().error('failed to get transform {} \n'.format(repr(e)))
         
