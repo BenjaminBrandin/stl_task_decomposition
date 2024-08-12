@@ -54,9 +54,9 @@ class Manager(Node):
         self.ready_controllers : list[int] = []
 
         # setup publishers
-        self.task_pub = self.create_publisher(TaskMsg, "/tasks", 10)
+        self.task_pub = self.create_publisher(TaskMsg, "/tasks", 100)
         self.numOfTasks_pub = self.create_publisher(Int32, "/numOfTasks", 10)
-        self.tokens_pub = self.create_publisher(LeaderShipTokens, "/tokens", 10)
+        self.tokens_pub = self.create_publisher(LeaderShipTokens, "/tokens", 100)
         self.leaf_nodes_pub = self.create_publisher(LeafNodes, "/leaf_nodes", 10)
 
         # setup subscribers
@@ -187,7 +187,7 @@ class Manager(Node):
             temporal_operator = EventuallyOperator(time_interval=TimeInterval(a=task_info["INTERVAL"][0], b=task_info["INTERVAL"][1]))
 
         # Create the task
-        task = StlTask(predicate=predicate, temporal_operator=temporal_operator)
+        task = StlTask(predicate=predicate, temporal_operator=temporal_operator, start_time=task_info["START_TIME"])
         return task
 
 
@@ -355,7 +355,7 @@ class Manager(Node):
                 task_message.temp_op = task.temporal_type
                 task_message.interval = task.time_interval.aslist
                 task_message.involved_agents = task.contributing_agents                            
-
+                task_message.start = task.start_time     
                 # Then publish the message
                 self.task_pub.publish(task_message)
 

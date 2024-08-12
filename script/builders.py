@@ -903,10 +903,11 @@ class StlTask:
         If the predicate is not provided then it will be set to None and will become parametric. 
 
     """
-    def __init__(self, predicate: PredicateFunction = None, temporal_operator: TemporalOperator = None) -> None:
+    def __init__(self, predicate: PredicateFunction = None, temporal_operator: TemporalOperator = None, start_time: float = None) -> None:
          
         self._predicate              = predicate         if predicate is not None else PredicateFunction
         self._temporal_operator      = temporal_operator if temporal_operator is not None else TemporalOperator
+        self._start_time             = start_time        if start_time is not None else 0.0
 
         """
         Initializes an STL task with the provided predicate function and temporal operator.
@@ -925,6 +926,10 @@ class StlTask:
     def type(self) -> str:
         """Get the type of predicate function."""
         return self._predicate.function_name
+    @property
+    def start_time(self) -> float:
+        """Get the time of which the agent should start executing the task."""
+        return self._start_time
     @property
     def epsilon(self) -> float:
         """Get the threshold value."""
