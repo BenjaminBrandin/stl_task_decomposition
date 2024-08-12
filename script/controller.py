@@ -630,7 +630,7 @@ class Controller(Node):
                 nabla_val = nabla_fun.call(inputs)["value"]
                 nabla_list.append(ca.norm_2(nabla_val))
 
-            self.get_logger().info(f"Norm of the gradient values: {nabla_list}")
+            # self.get_logger().info(f"Norm of the gradient values: {nabla_list}")
 
 
             # Solve the optimization problem 
@@ -640,8 +640,8 @@ class Controller(Node):
                 sol = self.solver(p=current_parameters, ubg=0)
                 optimal_input = sol['x']
 
-                self.get_logger().info(f"Optimal input: {optimal_input}")
-                self.get_logger().info(f"Optimal constraints: {sol['g'][self.num_of_planes_for_approx:]}") #[self.num_of_planes_for_approx:] skips the input constraints
+                # self.get_logger().info(f"Optimal input: {optimal_input}")
+                # self.get_logger().info(f"Optimal constraints: {sol['g'][self.num_of_planes_for_approx:]}") #[self.num_of_planes_for_approx:] skips the input constraints
         
             # Publish the velocity command
             linear_velocity = optimal_input[:2]
@@ -678,7 +678,7 @@ class Controller(Node):
                 gamma_tilde = self._compute_gamma_for_barrier(barrier)
                 if gamma_tilde != None:
                     self._gamma_tilde[neighbor_id] = gamma_tilde
-        self.get_logger().info(f"gamma tilde values for agent {self.agent_id}: {self._gamma_tilde}")
+        # self.get_logger().info(f"gamma tilde values for agent {self.agent_id}: {self._gamma_tilde}")
         if len(self._gamma_tilde) == len(self.leader_neighbors):
             self.ready_to_compute_gamma = True
         else:

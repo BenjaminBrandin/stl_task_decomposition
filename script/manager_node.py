@@ -48,8 +48,8 @@ class Manager(Node):
 
         self.agents: dict[int, Agent] = {}
         self.total_tasks: int = 0
-        communication_radius: float = 4
-        self.fixed_communication: bool = False
+        communication_radius: float = 4.0
+        self.fixed_communication_flag: bool = True
         self.bool_msg :bool = False
         self.ready_controllers : list[int] = []
 
@@ -99,7 +99,7 @@ class Manager(Node):
         # Creating the graphs
         communication_edges = [tuple(edge["agents"]) for edge in self.fixed_communications.values()]
 
-        if self.fixed_communication:
+        if self.fixed_communication_flag:
             self.comm_graph = fixed_communication_graph(start_positions, communication_edges)  # creates a communication graph using yaml file with fixed edges.
         else:
             self.comm_graph = create_communication_graph_from_states(start_positions, communication_radius)  # creates a communication graph using yaml file with fixed edges.
