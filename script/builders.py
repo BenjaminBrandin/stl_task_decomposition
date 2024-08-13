@@ -462,6 +462,8 @@ class BarrierFunction:
                  associated_alpha_function:ca.Function = None,
                  time_function:ca.Function = None,
                  switch_function:ca.Function = None,
+                 switch_test:ca.Function = None,
+                 start_time: float = 0.0,
                  name :str = None) -> None:
         """
         The initialization for a barrier function is a function b("state_1","state_2",...., "time")-> ["value].
@@ -487,6 +489,9 @@ class BarrierFunction:
         
         check_barrier_function_IO_names(function) # will throw an exception if the wrong naming in input and output is given
 
+        self._switch_test           = switch_test
+        self._start_time            = start_time
+
         self._function :ca.Function = function
         self._switch_function       = switch_function
         self.check_that_is_scalar_function(function=associated_alpha_function) # throws an error if the given function is not valid one
@@ -504,6 +509,16 @@ class BarrierFunction:
         if name == None :
             self._name = self._function.name()
     
+
+    @property
+    def switch_test(self):
+        """Get the switch function."""
+        return self._switch_test
+    @property
+    def start_time(self):
+        """Get the switch function."""
+        return self._start_time
+
 
     @property
     def function(self):
@@ -1402,7 +1417,11 @@ def create_barrier_from_task(task:StlTask, initial_conditions:List[Agent], alpha
             c = gamma0
             quadratic_decay = a*(time_var-t_init)**2 + b*(time_var-t_init) + c
             gamma    = ca.if_else(time_var <=time_of_satisfaction-t_init ,quadratic_decay,0) # piece wise linear function
-            
+
+
+
+    switch_test = ca.Function("switch_test",[time_var],[ca.if_else(time_var >= task.start_time,1.,0.)]) # create the gamma function
+    
     
     switch_function = ca.Function("switch_function",[time_var],[ca.if_else(time_var<= time_of_remotion,1.,0.)]) # create the gamma function
     gamma_fun       = ca.Function("gamma_function",[time_var],[gamma]) # create the gamma function
@@ -1419,4 +1438,6 @@ def create_barrier_from_task(task:StlTask, initial_conditions:List[Agent], alpha
     return BarrierFunction(function = barrier_fun, 
                            associated_alpha_function = alpha_function,
                            time_function=gamma_fun,
-                           switch_function=switch_function)
+                           switch_function=switch_function,
+                           switch_test = switch_test,
+                           start_time = task.start_time)

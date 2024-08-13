@@ -30,11 +30,13 @@ class Controller(Node):
     """
 
     def __init__(self):
+
         # Initialize the node
         super().__init__('controller')
+        self.reset_time : int = 100
 
         # Velocity Command Message
-        self.max_velocity = 1.0
+        self.max_velocity = 2.0
         self.vel_cmd_msg = Twist()
 
 
@@ -42,7 +44,7 @@ class Controller(Node):
         self.solver : ca.Function = None
         self.parameters : ca_tools.structure3.msymStruct = None
         self.input_vector = ca.MX.sym('input', 2)
-        self.enable_collision_avoidance: bool = True
+        self.enable_collision_avoidance: bool = False
         self.slack_variables = {}
         self.scale_factor = 3
         self.dummy_scalar = ca.MX.sym('dummy_scalar', 1)
@@ -151,6 +153,7 @@ class Controller(Node):
         # This timer is used to continuously compute the optimized input
         self.control_loop_timer = self.create_timer(0.5, self.control_loop, callback_group=self.mc_group) 
 
+        #  Timer that resets the controllers and use the new set of tasks 
 
 
 
@@ -357,9 +360,12 @@ class Controller(Node):
             string temp_op
             int32[] interval
             int32[] involved_agents 
+            float32 start
         """
         barriers_list = []
         for message in messages:
+
+            
             # Create the predicate based on the type of the task
             if message.type == "go_to_goal_predicate_2d":
                 predicate = go_to_goal_predicate_2d(goal=np.array(message.center), epsilon=message.epsilon, 
@@ -384,8 +390,10 @@ class Controller(Node):
 
             # Add the task to the barriers and the edge
             initial_conditions = [self.agents[i] for i in message.involved_agents]
-            barriers_list += [create_barrier_from_task(task=task, initial_conditions=initial_conditions, alpha_function=self.alpha_fun, t_init=task.start_time)] 
-        
+            
+            # Use interval or start time to devide the tasks into different sets (if interval[0] <= self.reset_time or if start <= self.reset_time)
+            barriers_list += [create_barrier_from_task(task=task, initial_conditions=initial_conditions, alpha_function=self.alpha_fun)]
+            
         # Create the conjunction of the barriers on the same edge
         barriers_list = self.conjunction_on_same_edge(barriers_list)
         
@@ -404,6 +412,7 @@ class Controller(Node):
         parameter_list += [ca_tools.entry(f"state_{id}", shape=2) for id in self.agents.keys()]
         parameter_list += [ca_tools.entry("time", shape=1)]
         parameter_list += [ca_tools.entry("gamma", shape=1)]
+
         
         if self.follower_neighbor is not None: # if the agent does not have a follower then it does not need to compute the best impact for the follower and won't get the worst impact from the follower
             parameter_list += [ca_tools.entry("epsilon", shape=1)]
@@ -502,27 +511,33 @@ class Controller(Node):
             barrier_fun                 = barrier.function
             partial_time_derivative_fun = barrier.partial_time_derivative
 
+            
+
             # Calculate the symbolic expressions for the barrier constraint
             nabla_xi = nabla_xi_fun.call(named_inputs)["value"]
             dbdt     = partial_time_derivative_fun.call(named_inputs)["value"]
             alpha_b  = barrier.associated_alpha_function(barrier_fun.call(named_inputs)["value"])
 
+
+            # switch_test_fun             = barrier.switch_test
+            # switch_test = switch_test_fun(self.parameters["time"])
+
             # if it is a self task
             if neighbor_id == self.agent_id:
                 load_sharing = 1
-                barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b)) # * switch
+                barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b)) #* switch_test 
             else:
                 # check edge for leading agent
                 leader = self.LeaderShipTokens_dict[tuple(sorted([self.agent_id, neighbor_id]))]         
 
                 if leader == self.agent_id:
                     load_sharing = 1
-                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b) + self.parameters['epsilon']) # * switch
+                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b) + self.parameters['epsilon']) #* switch_test
                 elif leader == neighbor_id:
                     load_sharing = 0.5  
                     slack = ca.MX.sym(f"slack", 1)
                     self.slack_variables[neighbor_id] = slack
-                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b) + slack) # * switch     
+                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b) + slack) #* switch_test
 
             constraints.append(barrier_constraint)
             self.barrier_func.append(barrier_fun)
