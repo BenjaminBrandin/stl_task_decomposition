@@ -49,7 +49,7 @@ class Manager(Node):
         self.agents: dict[int, Agent] = {}
         self.total_tasks: int = 0
         communication_radius: float = 4.0
-        self.fixed_communication_flag: bool = True
+        self.fixed_communication_flag: bool = False
         self.bool_msg :bool = False
         self.ready_controllers : list[int] = []
 
@@ -187,7 +187,7 @@ class Manager(Node):
             temporal_operator = EventuallyOperator(time_interval=TimeInterval(a=task_info["INTERVAL"][0], b=task_info["INTERVAL"][1]))
 
         # Create the task
-        task = StlTask(predicate=predicate, temporal_operator=temporal_operator, start_time=task_info["START_TIME"])
+        task = StlTask(predicate=predicate, temporal_operator=temporal_operator)
         return task
 
 
@@ -354,8 +354,7 @@ class Manager(Node):
                 task_message.epsilon = task.epsilon                         
                 task_message.temp_op = task.temporal_type
                 task_message.interval = task.time_interval.aslist
-                task_message.involved_agents = task.contributing_agents                            
-                task_message.start = task.start_time     
+                task_message.involved_agents = task.contributing_agents                             
                 # Then publish the message
                 self.task_pub.publish(task_message)
 

@@ -462,8 +462,6 @@ class BarrierFunction:
                  associated_alpha_function:ca.Function = None,
                  time_function:ca.Function = None,
                  switch_function:ca.Function = None,
-                 switch_test:ca.Function = None,
-                 start_time: float = 0.0,
                  name :str = None) -> None:
         """
         The initialization for a barrier function is a function b("state_1","state_2",...., "time")-> ["value].
@@ -489,8 +487,6 @@ class BarrierFunction:
         
         check_barrier_function_IO_names(function) # will throw an exception if the wrong naming in input and output is given
 
-        self._switch_test           = switch_test
-        self._start_time            = start_time
 
         self._function :ca.Function = function
         self._switch_function       = switch_function
@@ -510,14 +506,7 @@ class BarrierFunction:
             self._name = self._function.name()
     
 
-    @property
-    def switch_test(self):
-        """Get the switch function."""
-        return self._switch_test
-    @property
-    def start_time(self):
-        """Get the switch function."""
-        return self._start_time
+
 
 
     @property
@@ -918,11 +907,10 @@ class StlTask:
         If the predicate is not provided then it will be set to None and will become parametric. 
 
     """
-    def __init__(self, predicate: PredicateFunction = None, temporal_operator: TemporalOperator = None, start_time: float = None) -> None:
+    def __init__(self, predicate: PredicateFunction = None, temporal_operator: TemporalOperator = None) -> None:
          
         self._predicate              = predicate         if predicate is not None else PredicateFunction
         self._temporal_operator      = temporal_operator if temporal_operator is not None else TemporalOperator
-        self._start_time             = start_time        if start_time is not None else 0.0
 
         """
         Initializes an STL task with the provided predicate function and temporal operator.
@@ -941,10 +929,6 @@ class StlTask:
     def type(self) -> str:
         """Get the type of predicate function."""
         return self._predicate.function_name
-    @property
-    def start_time(self) -> float:
-        """Get the time of which the agent should start executing the task."""
-        return self._start_time
     @property
     def epsilon(self) -> float:
         """Get the threshold value."""
@@ -1420,7 +1404,7 @@ def create_barrier_from_task(task:StlTask, initial_conditions:List[Agent], alpha
 
 
 
-    switch_test = ca.Function("switch_test",[time_var],[ca.if_else(time_var >= task.start_time,1.,0.)]) # create the gamma function
+
     
     
     switch_function = ca.Function("switch_function",[time_var],[ca.if_else(time_var<= time_of_remotion,1.,0.)]) # create the gamma function
@@ -1438,6 +1422,4 @@ def create_barrier_from_task(task:StlTask, initial_conditions:List[Agent], alpha
     return BarrierFunction(function = barrier_fun, 
                            associated_alpha_function = alpha_function,
                            time_function=gamma_fun,
-                           switch_function=switch_function,
-                           switch_test = switch_test,
-                           start_time = task.start_time)
+                           switch_function=switch_function)

@@ -33,31 +33,30 @@ class Controller(Node):
 
         # Initialize the node
         super().__init__('controller')
-        self.reset_point : int = 50 # might be a list in the future if we want more than two sets of tasks
-        self.ready_controllers : list[int] = []#set() # Used as a flag to make sure the agents are synked before starting phase 2
+        self.reset_point       : int      = 40          # might be a list in the future if we want more than two sets of tasks
+        self.ready_controllers : set[int] = set()       # Used as a flag to make sure the agents are synked before starting the next set of tasks
 
         # Velocity Command Message
-        self.max_velocity = 2.0
-        self.vel_cmd_msg = Twist()
-
+        self.max_velocity : float = 2.0
+        self.vel_cmd_msg  : Twist = Twist()
 
         # Optimization Problem
-        self.solver : ca.Function = None
-        self.parameters : ca_tools.structure3.msymStruct = None
-        self.input_vector = ca.MX.sym('input', 2)
-        self.enable_collision_avoidance: bool = False
-        self.slack_variables = {} #reset
-        self.scale_factor = 3
-        self.dummy_scalar = ca.MX.sym('dummy_scalar', 1)
-        self.alpha_fun = ca.Function('alpha_fun', [self.dummy_scalar], [self.scale_factor * self.dummy_scalar])
-        self.barrier_func = [] #reset
-        self.nabla_funs = [] #reset
-        self.nabla_inputs = [] #reset
-        self.initial_time :float = 0.0 
-        self.current_time :float = 0.0
-        self._gamma : float = 1.0
-        self._gamma_tilde :dict[int,float] = {} #reset just in case (is reset in the control loop)
-        self.num_of_planes_for_approx = 40
+        self.scale_factor    = 3
+        self.initial_time    : float = 0.0 
+        self.current_time    : float = 0.0
+        self._gamma          : float = 1.0
+        self._gamma_tilde    : dict[int,float] = {} 
+        self.solver          : ca.Function = None
+        self.parameters      : ca_tools.structure3.msymStruct = None
+        self.input_vector    = ca.MX.sym('input', 2)
+        self.slack_variables : dict[int, ca.MX] = {} 
+        self.dummy_scalar    = ca.MX.sym('dummy_scalar', 1)
+        self.alpha_fun       = ca.Function('alpha_fun', [self.dummy_scalar], [self.scale_factor * self.dummy_scalar])
+        self.barrier_func    : list[ca.Function] = [] 
+        self.nabla_funs      : list[ca.Function] = [] 
+        self.nabla_inputs    : list[dict[str, ca.MX]] = [] 
+        self.enable_collision_avoidance : bool = False
+        self.num_of_planes_for_approx   = 40
         self.A, self.b, self.input_verticies = create_approximate_ball_constraints2d(radius=self.max_velocity, points_number=self.num_of_planes_for_approx)
         
         # parameters declaration from launch file
@@ -65,56 +64,56 @@ class Controller(Node):
         self.declare_parameter('num_robots', rclpy.Parameter.Type.INTEGER)
         
         # Agent Information # check if this can be above the optimization problem
-        self.agent_name = self.get_parameter('robot_name').get_parameter_value().string_value
-        self.agent_id = int(self.agent_name[-1])
-        self.latest_self_transform = TransformStamped()
-        self.total_agents = self.get_parameter('num_robots').get_parameter_value().integer_value
-        self.agents : dict[int, Agent]= {} # position of all the agents in the system including self agent
-        self._ready_to_run_service_loop = False #reset
-        self._ready_to_run_control_loop = False #reset
-        self._wait_for_future = False #reset
+        self.agents : dict[int, Agent]  = {} # position of all the agents in the system including self agent
+        self.total_agents               = self.get_parameter('num_robots').get_parameter_value().integer_value
+        self.agent_name                 = self.get_parameter('robot_name').get_parameter_value().string_value
+        self.agent_id                   = int(self.agent_name[-1])
+        self.latest_self_transform      = TransformStamped()
+        self._ready_to_run_service_loop : bool = False 
+        self._ready_to_run_control_loop : bool = False 
+        self._wait_for_future           : bool = False 
 
         # Information stored about your neighbors
-        self.LeaderShipTokens_dict : Dict[tuple,int]= {}
-        self.follower_neighbor : int = None
-        self.leader_neighbors : set[int] = set()
-        self.leaf_nodes : list[int] = []
+        self.follower_neighbor     : int             = None
+        self.leader_neighbors      : set[int]        = set()
+        self.leaf_nodes            : list[int]       = []
+        self.LeaderShipTokens_dict : dict[tuple,int] = {}
         
-        self._best_impact_from_leaders   : dict[int,float] = {} #reset    # for each leader you will receive a best impact that you will use to compute your gamma
-        self._worst_impact_on_leaders    : dict[int,float] = {} #reset    # after you compute gamma you send back your worst impact to the leaders
-        
-        self._worst_impact_from_follower : float = 0.0    #reset         # this is the worse impact that the follower of your task will send you back
-        self._best_impact_on_follower    : float = 0.0    #reset         # this is the best impact that you can have on the task you are leading
+        # Impact Information
+        self._best_impact_from_leaders   : dict[int,float] = {}     # for each leader you will receive a best impact that you will use to compute your gamma
+        self._worst_impact_on_leaders    : dict[int,float] = {}     # after you compute gamma you send back your worst impact to the leaders
+        self._worst_impact_from_follower : float = 0.0              # this is the worse impact that the follower of your task will send you back
+        self._best_impact_on_follower    : float = 0.0              # this is the best impact that you can have on the task you are leading
         
         # Callback Groups
-        self.rc_group = ReentrantCallbackGroup()
-        self.mc_group = MutuallyExclusiveCallbackGroup()
+        self.rc_group        = ReentrantCallbackGroup()
+        self.mc_group        = MutuallyExclusiveCallbackGroup()
         self.client_cb_group = MutuallyExclusiveCallbackGroup()
 
         # Service and Client Information
-        self.ready_to_compute_gamma = False #reset
-        self._impact_backup : dict[int, float] = {} #reset
-        self.impact_results : dict[int, float] = {} #reset
-        for id in range(1, self.total_agents + 1): #reset
+        self.ready_to_compute_gamma : bool = False 
+        self._impact_backup         : dict[int, float] = {} 
+        self.impact_results         : dict[int, float] = {} 
+        for id in range(1, self.total_agents + 1): 
             self.impact_results[id] = 0.0
-            self._worst_impact_on_leaders[id] = 0.0
+            self._worst_impact_on_leaders[id]  = 0.0
             self._best_impact_from_leaders[id] = 0.0
 
         # Barriers and tasks
-        self.task_set_1 : list[TaskMsg] = []
-        self.task_set_2 : list[TaskMsg] = []
-        # self.barriers_lists : list[list[BarrierFunction]] = [] 
-        self.barriers : list[BarrierFunction] = [] #reset 
-        self._barrier_you_are_leading : BarrierFunction = None #reset
-        self._barriers_you_are_following : list[BarrierFunction] = [] #reset
-        self._independent_barrier : BarrierFunction = None #reset
-        self.task_msg_list = [] 
-        self.total_tasks = float('inf') #reset so that we wait for all the tasks to be received before we start the controller
+        self.total_tasks                 = float('inf') 
+        self.task_set_1                  : list[TaskMsg]         = []
+        self.task_set_2                  : list[TaskMsg]         = []
+        self.barriers                    : list[BarrierFunction] = [] 
+        self._barrier_you_are_leading    : BarrierFunction       = None 
+        self._barriers_you_are_following : list[BarrierFunction] = [] 
+        self._independent_barrier        : BarrierFunction       = None 
+        self.task_msg_list               : list[TaskMsg]         = [] 
+        
 
         # Setup publishers
-        self.vel_pub = self.create_publisher(Twist, f"/agent{self.agent_id}/cmd_vel", 100)
-        self.agent_pose_pub = self.create_publisher(PoseStamped, f"/agent{self.agent_id}/agent_pose", 10)
-        self.ready_pub = self.create_publisher(Int32, "/controller_ready", 10)
+        self.vel_pub          = self.create_publisher(Twist, f"/agent{self.agent_id}/cmd_vel", 100)
+        self.ready_pub        = self.create_publisher(Int32, "/controller_ready", 10)
+        self.agent_pose_pub   = self.create_publisher(PoseStamped, f"/agent{self.agent_id}/agent_pose", 10)
         self.cleared_data_pub = self.create_publisher(Int32, "/cleared_data", 10)
 
         # Setup subscribers
@@ -126,7 +125,6 @@ class Controller(Node):
         for id in range(1, self.total_agents + 1):
             self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", 
                                     partial(self.agent_pose_callback, agent_id=id), 10, callback_group=self.rc_group)
-
 
         # Setup service server
         self.impact_server = self.create_service(Impact, f"/agent{self.agent_id}/impact_service", self.impact_callback, callback_group=self.rc_group)
@@ -165,55 +163,52 @@ class Controller(Node):
     def clear_data(self):
 
         self.slack_variables = {}
-        self.barrier_func = [] 
-        self.nabla_funs = [] 
-        self.nabla_inputs = [] 
+        self.barrier_func    = [] 
+        self.nabla_funs      = [] 
+        self.nabla_inputs    = [] 
 
-        self._ready_to_run_service_loop = False 
-        self._ready_to_run_control_loop = False 
-        self._wait_for_future = False 
+        self._ready_to_run_service_loop : bool = False 
+        self._ready_to_run_control_loop : bool = False 
+        self._wait_for_future           : bool = False 
 
         self._best_impact_from_leaders   : dict[int,float] = {}     
         self._worst_impact_on_leaders    : dict[int,float] = {}     
-        
         self._worst_impact_from_follower : float = 0.0             
         self._best_impact_on_follower    : float = 0.0             
         
-        self._gamma_tilde = {}
-        self._gamma = 1.0
-        self.ready_to_compute_gamma = False 
+        self._gamma         : float = 1.0
+        self._gamma_tilde   : dict[int,float]  = {}
         self._impact_backup : dict[int, float] = {} 
         self.impact_results : dict[int, float] = {} 
+        self.ready_to_compute_gamma : bool = False 
         
         for id in range(1, self.total_agents + 1): 
             self.impact_results[id] = 0.0
-            self._worst_impact_on_leaders[id] = 0.0
+            self._worst_impact_on_leaders[id]  = 0.0
             self._best_impact_from_leaders[id] = 0.0
 
-        self.barriers : list[BarrierFunction] = [] 
-        self._barrier_you_are_leading : BarrierFunction = None 
+        self.barriers                    : list[BarrierFunction] = [] 
+        self._barrier_you_are_leading    : BarrierFunction       = None 
         self._barriers_you_are_following : list[BarrierFunction] = [] 
-        self._independent_barrier : BarrierFunction = None 
+        self._independent_barrier        : BarrierFunction       = None 
 
 
 
     def reinitialize_controller(self):
 
         self.clear_data()
-
         self.barriers = self.create_barriers_from_tasks(self.task_set_2) # If we have more than two sets of tasks then find a better way to do this
         self.solver = self.get_qpsolver()
-
         self.wait_for_controller_timer = self.create_timer(1.0, self.wait_for_controller, callback_group=self.mc_group)
 
-        
 
     def wait_for_controller(self):
 
         if all(agent in self.ready_controllers for agent in self.agents.keys()):
+            self.wait_for_controller_timer.cancel()
+            self.initial_time,_ = self.get_clock().now().seconds_nanoseconds()
             self._ready_to_run_service_loop = True
             self._ready_to_run_control_loop = True
-            self.wait_for_controller_timer.cancel()
         else:
             agent = Int32()
             agent.data = self.agent_id
@@ -340,10 +335,12 @@ class Controller(Node):
                 temporal_operator = EventuallyOperator(time_interval=TimeInterval(a=message.interval[0], b=message.interval[1]))
 
             # Create the task
-            task = StlTask(predicate=predicate, temporal_operator=temporal_operator, start_time=message.start)
+            task = StlTask(predicate=predicate, temporal_operator=temporal_operator)
 
             # Add the task to the barriers and the edge
             initial_conditions = [self.agents[i] for i in message.involved_agents] # Needs the current state of the agents after the reset
+            # for agent in initial_conditions:
+            #     self.get_logger().info(f"Agent {agent.id} state: {agent.state}")
             
             barrier_list += [create_barrier_from_task(task=task, initial_conditions=initial_conditions, alpha_function=self.alpha_fun)]
             barrier_list = self.conjunction_on_same_edge(barrier_list)
@@ -374,6 +371,7 @@ class Controller(Node):
             parameter_list +=  [ca_tools.entry('collision_load_'+str(id),shape=1)  for id in range(1, self.total_agents + 1) if id != self.agent_id]  # used to switch off a collision avoidance constraint when not needed
             
         parameters = ca_tools.struct_symMX(parameter_list)
+
         return parameters
 
 
@@ -408,33 +406,27 @@ class Controller(Node):
             barrier_fun                 = barrier.function
             partial_time_derivative_fun = barrier.partial_time_derivative
 
-            
-
             # Calculate the symbolic expressions for the barrier constraint
             nabla_xi = nabla_xi_fun.call(named_inputs)["value"]
             dbdt     = partial_time_derivative_fun.call(named_inputs)["value"]
             alpha_b  = barrier.associated_alpha_function(barrier_fun.call(named_inputs)["value"])
 
-
-            # switch_test_fun             = barrier.switch_test
-            # switch_test = switch_test_fun(self.parameters["time"])
-
             # if it is a self task
             if neighbor_id == self.agent_id:
                 load_sharing = 1
-                barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b)) #* switch_test 
+                barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b)) 
             else:
                 # check edge for leading agent
                 leader = self.LeaderShipTokens_dict[tuple(sorted([self.agent_id, neighbor_id]))]         
 
                 if leader == self.agent_id:
                     load_sharing = 1
-                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b) + self.parameters['epsilon']) #* switch_test
+                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b) + self.parameters['epsilon']) 
                 elif leader == neighbor_id:
                     load_sharing = 0.5  
                     slack = ca.MX.sym(f"slack", 1)
                     self.slack_variables[neighbor_id] = slack
-                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b) + slack) #* switch_test
+                    barrier_constraint = -1 * (ca.dot(nabla_xi.T, self.input_vector) + load_sharing * (dbdt + alpha_b) + slack) 
 
             constraints.append(barrier_constraint)
             self.barrier_func.append(barrier_fun)
@@ -451,9 +443,8 @@ class Controller(Node):
         switch = ca.MX.sym("switch",1)  # switch off the constraint when not needed
         load   = ca.MX.sym("load",1)    # switch off the constraint when not needed
 
-        
-        collision_radius = 0.5                                    # assuming the two agents are 1m big
-        barrier = (x-y).T@(x-y) - (2*collision_radius)**2         # here the collsion radius is assumed to be 1 for each object 
+        collision_radius = 0.5                              # assuming the two agents are 1m big
+        barrier = (x-y).T@(x-y) - (2*collision_radius)**2   # here the collsion radius is assumed to be 1 for each object 
 
         g_xu = np.eye(self.agents[self.agent_id].state.size)@self.input_vector
         db_dx = ca.jacobian(barrier,x)
@@ -509,14 +500,14 @@ class Controller(Node):
         self.parameters = self.controller_parameters()
 
         # Create the constraints for the optimization problem --- 'g' ---
-        input_constraints = self.A @ self.input_vector - self.parameters["gamma"] * self.b
+        input_constraints      = self.A @ self.input_vector - self.parameters["gamma"] * self.b
         barrier_constraints    = self.generate_barrier_constraints(self.relevant_barriers)
         slack_constraints      = - ca.vertcat(*list(self.slack_variables.values()))
         
         if self.enable_collision_avoidance:
-            self._collision_constraint_fun :ca.Function =  self._get_collision_avoidance_barrier()
-            collision_constraints = self._get_collision_avoidance_constraints(self.parameters) 
-            constraints           = ca.vertcat(input_constraints, barrier_constraints, slack_constraints, collision_constraints)
+            self._collision_constraint_fun =  self._get_collision_avoidance_barrier()
+            collision_constraints          = self._get_collision_avoidance_constraints(self.parameters) 
+            constraints                    = ca.vertcat(input_constraints, barrier_constraints, slack_constraints, collision_constraints)
         else:
             constraints           = ca.vertcat(input_constraints, barrier_constraints, slack_constraints)
 
@@ -553,7 +544,7 @@ class Controller(Node):
             # Fill the structure with the values
             current_parameters = self.parameters(0)
 
-            current_parameters["time"] = self.current_time
+            current_parameters["time"]  = self.current_time
             current_parameters["gamma"] = self._gamma
             for id in self.agents.keys():
                 current_parameters[f'state_{id}'] = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
@@ -571,7 +562,6 @@ class Controller(Node):
                         # self.get_logger().info(f"Distance between agent {self.agent_id} and agent {id}: {distance}")
                     
                         current_parameters["collision_pos_" + str(id)] = other_agent_pos
-                        # current_parameters["collision_load_" + str(id)] = 1.0
                         
                         if distance < 2.0:
                             current_parameters["collision_switch_" + str(id)] = 1.0
@@ -583,11 +573,12 @@ class Controller(Node):
 
                         
             # Calculate the gradient values to check for convergence
-            nabla_list = []
             inputs = {}
+            nabla_list = []
+
             for i, nabla_fun in enumerate(self.nabla_funs):
                 inputs = {key: current_parameters[key] for key in self.nabla_inputs[i].keys()}
-                self.get_logger().info(f"barrier {i+1} : {self.barrier_func[i].call(inputs)['value']}")
+                # self.get_logger().info(f"barrier {i+1} : {self.barrier_func[i].call(inputs)['value']}")
                 nabla_val = nabla_fun.call(inputs)["value"]
                 nabla_list.append(ca.norm_2(nabla_val))
 
@@ -615,6 +606,7 @@ class Controller(Node):
             # reset values for the next iteration
             self._gamma_tilde = {}
             self._gamma = 1.0
+            self.get_logger().info(f"Current time: {self.current_time}")
 
         else:
             # self.get_logger().info("Not ready to run control loop yet...")
@@ -740,7 +732,7 @@ class Controller(Node):
         
             # now we need to compute the gamma for this special case  
             try :
-                neighbor_best_impact          = self._best_impact_from_leaders[neighbor_id] # this is a scalar value representing the best impact of the neigbour on the barrier given its intupt limitations
+                neighbor_best_impact = self._best_impact_from_leaders[neighbor_id] # this is a scalar value representing the best impact of the neigbour on the barrier given its intupt limitations
                 # self.get_logger().info(f"Upack leader best impact from agent {neighbor_id} with value {neighbor_best_impact}") 
             except:
                 # self.get_logger().info(f"Required leaders best impact from agent {neighbor_id} not available yet. Retry later...") 
@@ -825,7 +817,7 @@ class Controller(Node):
                 local_gradient :ca.Function = barrier.gradient_function_wrt_state_of_agent(self.agent_id)    
                 
                 named_inputs   = {"state_"+str(self.agent_id)        :self.agents[self.agent_id].state,
-                                  "state_"+str(leader_neighbor)      :self.agents[leader_neighbor].state ,
+                                  "state_"+str(leader_neighbor)      :self.agents[leader_neighbor].state,
                                   "time"                              :self.current_time}
 
                 local_gardient_value = local_gradient.call(named_inputs)["value"] # compute the local gradient
@@ -935,15 +927,13 @@ class Controller(Node):
             self.reinitialize_controller()
             
         else:
-            self.get_logger().info(f"Current time: {self.current_time}")
-            # pass
+            
+            pass
 
     def cleared_data_callback(self, msg):
         agent = msg.data
-        if agent not in self.ready_controllers:
-            self.ready_controllers.append(agent)
-        else:
-            pass
+        self.ready_controllers.add(agent)
+
 
 
     def transform_timer_callback(self):
