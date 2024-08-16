@@ -33,7 +33,7 @@ class Controller(Node):
 
         # Initialize the node
         super().__init__('controller')
-        self.reset_point       : int      = 40          # might be a list in the future if we want more than two sets of tasks
+        self.reset_point       : int      = 50          # might be a list in the future if we want more than two sets of tasks
         self.ready_controllers : set[int] = set()       # Used as a flag to make sure the agents are synked before starting the next set of tasks
 
         # Velocity Command Message
@@ -136,7 +136,7 @@ class Controller(Node):
                 client = self.create_client(Impact, f"/agent{id}/impact_service", callback_group=self.client_cb_group)
                 self.impact_clients[id] = client
                 while not client.wait_for_service(timeout_sec=1.0):
-                    self.get_logger().info(f'Impact service for agent{id} not available, waiting...')
+                    self._logger.info(f'Impact service for agent{id} not available, waiting...')
 
 
         # Setup transform subscriber
@@ -197,16 +197,16 @@ class Controller(Node):
     def reinitialize_controller(self):
 
         self.clear_data()
+        # self.initial_time,_ = self.get_clock().now().seconds_nanoseconds()
         self.barriers = self.create_barriers_from_tasks(self.task_set_2) # If we have more than two sets of tasks then find a better way to do this
         self.solver = self.get_qpsolver()
-        self.wait_for_controller_timer = self.create_timer(1.0, self.wait_for_controller, callback_group=self.mc_group)
+        self.wait_for_controller_timer = self.create_timer(0.4, self.wait_for_controller, callback_group=self.mc_group)
 
 
     def wait_for_controller(self):
 
-        if all(agent in self.ready_controllers for agent in self.agents.keys()):
+        if len(self.ready_controllers) == self.total_agents: # if all(agent in self.ready_controllers for agent in self.agents.keys()):
             self.wait_for_controller_timer.cancel()
-            self.initial_time,_ = self.get_clock().now().seconds_nanoseconds()
             self._ready_to_run_service_loop = True
             self._ready_to_run_control_loop = True
         else:
@@ -340,9 +340,13 @@ class Controller(Node):
             # Add the task to the barriers and the edge
             initial_conditions = [self.agents[i] for i in message.involved_agents] # Needs the current state of the agents after the reset
             # for agent in initial_conditions:
-            #     self.get_logger().info(f"Agent {agent.id} state: {agent.state}")
+            #     self._logger.info(f"Agent {agent.id} state: {agent.state}")
+
+            # Get the current time
+            time_in_sec,_ = self.get_clock().now().seconds_nanoseconds()
+            self.current_time = ca.vertcat(time_in_sec - self.initial_time)
             
-            barrier_list += [create_barrier_from_task(task=task, initial_conditions=initial_conditions, alpha_function=self.alpha_fun)]
+            barrier_list += [create_barrier_from_task(task=task, initial_conditions=initial_conditions, alpha_function=self.alpha_fun, t_init=self.current_time)]
             barrier_list = self.conjunction_on_same_edge(barrier_list)
 
         return barrier_list
@@ -538,7 +542,7 @@ class Controller(Node):
         if self._ready_to_run_control_loop:
             
             # Get the current time
-            time_in_sec,_ = self.get_clock().now().seconds_nanoseconds()
+            time_in_sec = self.get_clock().now().nanoseconds/1e9
             self.current_time = ca.vertcat(time_in_sec - self.initial_time)
 
             # Fill the structure with the values
@@ -551,6 +555,7 @@ class Controller(Node):
 
             if self.follower_neighbor is not None:
                 current_parameters["epsilon"] = self._worst_impact_from_follower
+                self._logger.info(f"epsilon from agent {self.follower_neighbor}: {self._worst_impact_from_follower}")
 
             if self.enable_collision_avoidance:
                 current_agent_pos = ca.vertcat(self.agents[self.agent_id].state[0], self.agents[self.agent_id].state[1])
@@ -559,7 +564,7 @@ class Controller(Node):
                     if id != self.agent_id:
                         other_agent_pos = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
                         distance = ca.norm_2(ca.vertcat(current_agent_pos[0] - other_agent_pos[0], current_agent_pos[1] - other_agent_pos[1]))
-                        # self.get_logger().info(f"Distance between agent {self.agent_id} and agent {id}: {distance}")
+                        # self._logger.info(f"Distance between agent {self.agent_id} and agent {id}: {distance}")
                     
                         current_parameters["collision_pos_" + str(id)] = other_agent_pos
                         
@@ -578,11 +583,12 @@ class Controller(Node):
 
             for i, nabla_fun in enumerate(self.nabla_funs):
                 inputs = {key: current_parameters[key] for key in self.nabla_inputs[i].keys()}
-                # self.get_logger().info(f"barrier {i+1} : {self.barrier_func[i].call(inputs)['value']}")
+                self._logger.info(f"current time: {current_parameters['time']}")
+                self._logger.info(f"barrier {self.barrier_func[i].name_in()} : {self.barrier_func[i].call(inputs)['value']}")
                 nabla_val = nabla_fun.call(inputs)["value"]
                 nabla_list.append(ca.norm_2(nabla_val))
 
-            # self.get_logger().info(f"Norm of the gradient values: {nabla_list}")
+            self._logger.info(f"Norm of the gradient values: {nabla_list}")
 
 
             # Solve the optimization problem 
@@ -592,8 +598,8 @@ class Controller(Node):
                 sol = self.solver(p=current_parameters, ubg=0)
                 optimal_input = sol['x']
 
-                # self.get_logger().info(f"Optimal input: {optimal_input}")
-                # self.get_logger().info(f"Optimal constraints: {sol['g'][self.num_of_planes_for_approx:]}") #[self.num_of_planes_for_approx:] skips the input constraints
+                # self._logger.info(f"Optimal input: {optimal_input}")
+                # self._logger.info(f"Optimal constraints: {sol['g'][self.num_of_planes_for_approx:]}") #[self.num_of_planes_for_approx:] skips the input constraints
         
             # Publish the velocity command
             linear_velocity = optimal_input[:2]
@@ -606,10 +612,10 @@ class Controller(Node):
             # reset values for the next iteration
             self._gamma_tilde = {}
             self._gamma = 1.0
-            self.get_logger().info(f"Current time: {self.current_time}")
+            self._logger.info(f"Current time: {self.current_time}")
 
         else:
-            # self.get_logger().info("Not ready to run control loop yet...")
+            # self._logger.info("Not ready to run control loop yet...")
             pass
         
 
@@ -628,40 +634,40 @@ class Controller(Node):
             
     def process_leaf_node(self):
 
-        # self.get_logger().info("computing gamma and best impact")
+        # self._logger.info("computing gamma and best impact")
         self.compute_gamma_and_best_impact_on_leading_task()
-        # self.get_logger().info(f"sending a request to the follower {self.follower_neighbor} for the worst impact")
+        # self._logger.info(f"sending a request to the follower {self.follower_neighbor} for the worst impact")
         response = self.call_impact_callback(self.follower_neighbor, "worst")
         if response is not None:
-            # self.get_logger().info(f"I now have the worst impact from follower {self.follower_neighbor}")
+            # self._logger.info(f"I now have the worst impact from follower {self.follower_neighbor}")
             self._worst_impact_from_follower = response
 
 
     def process_non_leaf_node(self):
         for leader in self.leader_neighbors:
-            # self.get_logger().info(f"sending a request to the leader {leader} for the best impact")
+            # self._logger.info(f"sending a request to the leader {leader} for the best impact")
             response = self.call_impact_callback(leader, "best")
             if response is not None:
-                # self.get_logger().info(f"I now have the best impact from leader {leader}")
+                # self._logger.info(f"I now have the best impact from leader {leader}")
                 self._best_impact_from_leaders[leader] = response
 
-        # self.get_logger().info("all best impacts are received")
+        # self._logger.info("all best impacts are received")
         self.compute_gamma_tilde_values()
 
         if self.ready_to_compute_gamma:
-            # self.get_logger().info("computing gamma and best impact")
+            # self._logger.info("computing gamma and best impact")
             self.compute_gamma_and_best_impact_on_leading_task()
             self.ready_to_compute_gamma = False
-            # self.get_logger().info("computing worst impact")
+            # self._logger.info("computing worst impact")
             self.compute_worst_impact_on_following_task()
         else:
-            self.get_logger().info("Have not computed all gamma tilde values yet. Retry later...")
+            self._logger.info("Have not computed all gamma tilde values yet. Retry later...")
 
         if self.follower_neighbor is not None:
-            # self.get_logger().info(f"sending a request to the follower {self.follower_neighbor} for the worst impact")
+            # self._logger.info(f"sending a request to the follower {self.follower_neighbor} for the worst impact")
             response = self.call_impact_callback(self.follower_neighbor, "worst")
             if response is not None:
-                # self.get_logger().info(f"I now have the worst impact from follower {self.follower_neighbor}")
+                # self._logger.info(f"I now have the worst impact from follower {self.follower_neighbor}")
                 self._worst_impact_from_follower = response
 
 
@@ -669,7 +675,7 @@ class Controller(Node):
 
     def compute_gamma_tilde_values(self):
 
-        # self.get_logger().info(f"Trying to compute gamma tilde values...")
+        # self._logger.info(f"Trying to compute gamma tilde values...")
         for barrier in self._barriers_you_are_following:
             involved_agent = barrier.contributing_agents # only two agents are involved in a function for this controller
             
@@ -682,11 +688,11 @@ class Controller(Node):
                 gamma_tilde = self._compute_gamma_for_barrier(barrier)
                 if gamma_tilde != None:
                     self._gamma_tilde[neighbor_id] = gamma_tilde
-        # self.get_logger().info(f"gamma tilde values for agent {self.agent_id}: {self._gamma_tilde}")
+        # self._logger.info(f"gamma tilde values for agent {self.agent_id}: {self._gamma_tilde}")
         if len(self._gamma_tilde) == len(self.leader_neighbors):
             self.ready_to_compute_gamma = True
         else:
-            self.get_logger().error(f"Only {len(self._gamma_tilde)} out of {len(self.leader_neighbors)} gamma tilde values are computed.")
+            self._logger.error(f"Only {len(self._gamma_tilde)} out of {len(self.leader_neighbors)} gamma tilde values are computed.")
         
           
     def _compute_gamma_for_barrier(self, barrier: BarrierFunction) -> float :
@@ -733,9 +739,9 @@ class Controller(Node):
             # now we need to compute the gamma for this special case  
             try :
                 neighbor_best_impact = self._best_impact_from_leaders[neighbor_id] # this is a scalar value representing the best impact of the neigbour on the barrier given its intupt limitations
-                # self.get_logger().info(f"Upack leader best impact from agent {neighbor_id} with value {neighbor_best_impact}") 
+                # self._logger.info(f"Upack leader best impact from agent {neighbor_id} with value {neighbor_best_impact}") 
             except:
-                # self.get_logger().info(f"Required leaders best impact from agent {neighbor_id} not available yet. Retry later...") 
+                # self._logger.info(f"Required leaders best impact from agent {neighbor_id} not available yet. Retry later...") 
                 return None
             
             alpha_barrier_value            = associated_alpha_function(barrier_fun.call(named_inputs)["value"])                # compute the alpha function associated to the barrier function
@@ -743,13 +749,17 @@ class Controller(Node):
             
             zeta = alpha_barrier_value + partial_time_derivative_value 
             
+            self._logger.info(f"Alpha barrier value: {alpha_barrier_value}")
+            self._logger.info(f"Partial time derivative value: {partial_time_derivative_value}")
+            self._logger.info(f"Zeta value: {zeta}")
+
             if np.linalg.norm(local_gardient_value) <= 10**-6 :
                 gamma_tilde = 1
             else : #TODO: Introduce a reduction factor for collision avoidance
                 gamma_tilde =  -(neighbor_best_impact + zeta) / ( local_gardient_value.T @ g_value @ worst_input) # compute the gamma value
                 
                 if alpha_barrier_value < 0 :
-                    self.get_logger().warning(f"Alpha barrier value is negative. This entails task dissatisfaction. The value is {alpha_barrier_value}. Please verify that the task is feasible")
+                    self._logger.warning(f"Alpha barrier value is negative. This entails task dissatisfaction. The value is {alpha_barrier_value}. Please verify that the task is feasible")
                 return float(gamma_tilde)
    
     
@@ -765,7 +775,7 @@ class Controller(Node):
             self._gamma = min(gamma_tildes_list + [1]) # take the minimum of the gamma tilde values
             
             if self._gamma<=0 :
-                self.get_logger().error(f"The computed gamma value is negative. This breakes the process. The gamma value is {self._gamma}")
+                self._logger.error(f"The computed gamma value is negative. This breakes the process. The gamma value is {self._gamma}")
                 raise RuntimeError(f"The computed gamma value for agent {self.agent_id} is negative. This breakes the process. The gamma value is {self._gamma}")
             
         
@@ -896,7 +906,7 @@ class Controller(Node):
         if len(self.task_msg_list) == self.total_tasks: 
 
             self.task_check_timer.cancel()  # Stop the timer if all tasks are received
-            self.get_logger().info("==All tasks received==")
+            self._logger.info("==All tasks received==")
             self.initial_time,_ = self.get_clock().now().seconds_nanoseconds()
             
             # Create the tasks and the barriers
@@ -923,7 +933,7 @@ class Controller(Node):
             self.reset_timer.cancel()
             self._ready_to_run_service_loop = False #unnecessary
             self._ready_to_run_control_loop = False #unnecessary
-            self.get_logger().info(f"Current time: {self.current_time}")
+            # self._logger.info(f"Current time: {self.current_time}")
             self.reinitialize_controller()
             
         else:
@@ -957,7 +967,7 @@ class Controller(Node):
             self.ready_pub.publish(ready)
         
         except LookupException as e:
-            self.get_logger().error('failed to get transform {} \n'.format(repr(e)))
+            self._logger.error('failed to get transform {} \n'.format(repr(e)))
         
 
     def tokens_callback(self, msg):
@@ -999,10 +1009,10 @@ class Controller(Node):
         self._wait_for_future = False
 
         if self.future.done() and self.future.result() is not None:
-            # self.get_logger().info(f"Future is done and received response from agent {neighbor_id} with impact value {self.future.result().impact}")
+            # self._logger.info(f"Future is done and received response from agent {neighbor_id} with impact value {self.future.result().impact}")
             return self.future.result().impact
         else:
-            self.get_logger().error(f'Service call failed or timed out, sending backup value {float(self._impact_backup.get(neighbor_id, 0.0))}')
+            self._logger.error(f'Service call failed or timed out, sending backup value {float(self._impact_backup.get(neighbor_id, 0.0))}')
             return float(self._impact_backup.get(neighbor_id, 0.0))
 
 
@@ -1016,15 +1026,15 @@ class Controller(Node):
             response (ImpactResponse): The response message.
         """
 
-        # self.get_logger().info(f"Received request from agent {request.i} for {request.type} impact")
+        # self._logger.info(f"Received request from agent {request.i} for {request.type} impact")
         if request.type == "best":
             if self._best_impact_on_follower != 0.0:
                 response.impact = float(self._best_impact_on_follower)
                 self._impact_backup[request.i] = response.impact
                 self._best_impact_on_follower = 0.0
-                # self.get_logger().info(f"sending response to agent {request.i} with best impact value {response.impact}")
+                # self._logger.info(f"sending response to agent {request.i} with best impact value {response.impact}")
             else:
-                # self.get_logger().info(f"best impact not computed yet, using backup value: {self._impact_backup.get(request.i, 0.0)}")
+                # self._logger.info(f"best impact not computed yet, using backup value: {self._impact_backup.get(request.i, 0.0)}")
                 response.impact = float(self._impact_backup.get(request.i, 0.0))
 
         elif request.type == "worst":
@@ -1032,9 +1042,9 @@ class Controller(Node):
                 response.impact = float(self._worst_impact_on_leaders[request.i])
                 self._impact_backup[request.i] = response.impact
                 self._worst_impact_on_leaders[request.i] = 0.0 
-                # self.get_logger().info(f"sending response to agent {request.i} with worst impact value {response.impact}")
+                # self._logger.info(f"sending response to agent {request.i} with worst impact value {response.impact}")
             else:
-                # self.get_logger().info(f"worst impact not computed yet, using backup value: {self._impact_backup.get(request.i, 0.0)}")
+                # self._logger.info(f"worst impact not computed yet, using backup value: {self._impact_backup.get(request.i, 0.0)}")
                 response.impact = float(self._impact_backup.get(request.i, 0.0))
 
         return response

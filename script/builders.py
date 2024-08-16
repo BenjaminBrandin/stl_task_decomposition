@@ -1306,7 +1306,7 @@ def conjunction_of_barriers(barrier_list:List[BarrierFunction], associated_alpha
     return BarrierFunction(function=b, associated_alpha_function=associated_alpha_function, switch_function=final_switch)
 
 
-def create_barrier_from_task(task:StlTask, initial_conditions:List[Agent], alpha_function:ca.Function = None, t_init:float = 0) -> BarrierFunction:
+def create_barrier_from_task(task:StlTask, initial_conditions:List[Agent], t_init:float,alpha_function:ca.Function = None ) -> BarrierFunction:
     """
     Creates a barrier function from a given STLtask in the form of b(x,t) = mu(x) + gamma(t-t_init) 
     where mu(x) is the predicate and gamma(t) is a suitably defined time function 
@@ -1392,15 +1392,21 @@ def create_barrier_from_task(task:StlTask, initial_conditions:List[Agent], alpha
             if predicate_initial_value <=0:
                 gamma0 = - predicate_initial_value*1.2 # this gives you always a gamma function that is at 45 degrees decay. It is an heuristic
             elif predicate_initial_value >0:
-                gamma0 =  - predicate_initial_value*0.8
-            else:
-                gamma0 = - predicate_initial_value
-                
+                gamma0 =   predicate_initial_value*0.02
+            
+            # print(f"Agents {contributing_agents} gamma0",gamma0)
+            # quadratic decay 
             a = gamma0/(time_of_satisfaction-t_init)**2
             b = -2*gamma0/(time_of_satisfaction-t_init)
             c = gamma0
             quadratic_decay = a*(time_var-t_init)**2 + b*(time_var-t_init) + c
-            gamma    = ca.if_else(time_var <=time_of_satisfaction-t_init ,quadratic_decay,0) # piece wise linear function
+
+            
+            # linear decay
+            slope = gamma0/(t_init - time_of_satisfaction)
+            linear_decay = gamma0 + slope*(time_var - t_init)
+
+            gamma    = ca.if_else(time_var <=time_of_satisfaction ,linear_decay,0) # piece wise linear function
 
 
 
