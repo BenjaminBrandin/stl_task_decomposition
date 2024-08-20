@@ -33,11 +33,11 @@ class Controller(Node):
 
         # Initialize the node
         super().__init__('controller')
-        self.reset_point       : int      = 50          # might be a list in the future if we want more than two sets of tasks
-        self.ready_controllers : set[int] = set()       # Used as a flag to make sure the agents are synked before starting the next set of tasks
-
+        self.reset_point       : list[int] = [30, 60]          # might be a list in the future if we want more than two sets of tasks
+        self.ready_controllers : set[int]  = set()       # Used as a flag to make sure the agents are synked before starting the next set of tasks
+        self.current_task_set  : int       = 0
         # Velocity Command Message
-        self.max_velocity : float = 2.0
+        self.max_velocity : float = 3.0
         self.vel_cmd_msg  : Twist = Twist()
 
         # Optimization Problem
@@ -100,7 +100,8 @@ class Controller(Node):
             self._best_impact_from_leaders[id] = 0.0
 
         # Barriers and tasks
-        self.total_tasks                 = float('inf') 
+        self.total_tasks                 = float('inf')
+        self.task_sets                   : list[list[TaskMsg]]   = [[] for _ in range(len(self.reset_point)+1)] 
         self.task_set_1                  : list[TaskMsg]         = []
         self.task_set_2                  : list[TaskMsg]         = []
         self.barriers                    : list[BarrierFunction] = [] 
@@ -166,7 +167,7 @@ class Controller(Node):
         self.barrier_func    = [] 
         self.nabla_funs      = [] 
         self.nabla_inputs    = [] 
-
+        
         self._ready_to_run_service_loop : bool = False 
         self._ready_to_run_control_loop : bool = False 
         self._wait_for_future           : bool = False 
@@ -176,36 +177,37 @@ class Controller(Node):
         self._worst_impact_from_follower : float = 0.0             
         self._best_impact_on_follower    : float = 0.0             
         
-        self._gamma         : float = 1.0
-        self._gamma_tilde   : dict[int,float]  = {}
-        self._impact_backup : dict[int, float] = {} 
-        self.impact_results : dict[int, float] = {} 
-        self.ready_to_compute_gamma : bool = False 
+        self._gamma                 : float = 1.0
+        self._gamma_tilde           : dict[int,float]  = {}
+        self._impact_backup         : dict[int, float] = {} 
+        self.impact_results         : dict[int, float] = {} 
+        self.ready_controllers      : set[int]         = set()
+        self.ready_to_compute_gamma : bool             = False 
         
         for id in range(1, self.total_agents + 1): 
             self.impact_results[id] = 0.0
             self._worst_impact_on_leaders[id]  = 0.0
             self._best_impact_from_leaders[id] = 0.0
 
-        self.barriers                    : list[BarrierFunction] = [] 
-        self._barrier_you_are_leading    : BarrierFunction       = None 
-        self._barriers_you_are_following : list[BarrierFunction] = [] 
+        self.barriers                    : list[BarrierFunction] = []
+        self.relevant_barriers           : list[BarrierFunction] = [] 
+        self._barriers_you_are_following : list[BarrierFunction] = []
+        self._barrier_you_are_leading    : BarrierFunction       = None  
         self._independent_barrier        : BarrierFunction       = None 
-
-
+        
 
     def reinitialize_controller(self):
 
         self.clear_data()
-        # self.initial_time,_ = self.get_clock().now().seconds_nanoseconds()
-        self.barriers = self.create_barriers_from_tasks(self.task_set_2) # If we have more than two sets of tasks then find a better way to do this
+
+        self.barriers = self.create_barriers_from_tasks(self.task_sets[self.current_task_set]) 
         self.solver = self.get_qpsolver()
         self.wait_for_controller_timer = self.create_timer(0.4, self.wait_for_controller, callback_group=self.mc_group)
 
 
     def wait_for_controller(self):
 
-        if len(self.ready_controllers) == self.total_agents: # if all(agent in self.ready_controllers for agent in self.agents.keys()):
+        if len(self.ready_controllers) == self.total_agents: 
             self.wait_for_controller_timer.cancel()
             self._ready_to_run_service_loop = True
             self._ready_to_run_control_loop = True
@@ -497,7 +499,7 @@ class Controller(Node):
         # get the neighbors of the current agent
         self.get_leader_and_follower_neighbors()
         self.relevant_barriers = [barrier for barrier in self.barriers if self.agent_id in barrier.contributing_agents]
-        self._barrier_you_are_leading, self._barriers_you_are_following, self._independent_barrier  = self._get_splitted_barriers(barriers= self.relevant_barriers)
+        self._barrier_you_are_leading, self._barriers_you_are_following, self._independent_barrier  = self._get_splitted_barriers(barriers = self.relevant_barriers)
 
 
         # Create the parameter structure for the optimization problem --- 'p' ---
@@ -509,11 +511,11 @@ class Controller(Node):
         slack_constraints      = - ca.vertcat(*list(self.slack_variables.values()))
         
         if self.enable_collision_avoidance:
-            self._collision_constraint_fun =  self._get_collision_avoidance_barrier()
+            self._collision_constraint_fun = self._get_collision_avoidance_barrier()
             collision_constraints          = self._get_collision_avoidance_constraints(self.parameters) 
             constraints                    = ca.vertcat(input_constraints, barrier_constraints, slack_constraints, collision_constraints)
         else:
-            constraints           = ca.vertcat(input_constraints, barrier_constraints, slack_constraints)
+            constraints                    = ca.vertcat(input_constraints, barrier_constraints, slack_constraints)
 
         # Create the decision variables for the optimization problem --- 'x' ---
         slack_vector = ca.vertcat(*list(self.slack_variables.values()))
@@ -555,7 +557,7 @@ class Controller(Node):
 
             if self.follower_neighbor is not None:
                 current_parameters["epsilon"] = self._worst_impact_from_follower
-                self._logger.info(f"epsilon from agent {self.follower_neighbor}: {self._worst_impact_from_follower}")
+                # self._logger.info(f"epsilon from agent {self.follower_neighbor}: {self._worst_impact_from_follower}")
 
             if self.enable_collision_avoidance:
                 current_agent_pos = ca.vertcat(self.agents[self.agent_id].state[0], self.agents[self.agent_id].state[1])
@@ -583,12 +585,12 @@ class Controller(Node):
 
             for i, nabla_fun in enumerate(self.nabla_funs):
                 inputs = {key: current_parameters[key] for key in self.nabla_inputs[i].keys()}
-                self._logger.info(f"current time: {current_parameters['time']}")
-                self._logger.info(f"barrier {self.barrier_func[i].name_in()} : {self.barrier_func[i].call(inputs)['value']}")
+                # self._logger.info(f"current time: {current_parameters['time']}")
+                # self._logger.info(f"barrier {self.barrier_func[i].name_in()} : {self.barrier_func[i].call(inputs)['value']}")
                 nabla_val = nabla_fun.call(inputs)["value"]
                 nabla_list.append(ca.norm_2(nabla_val))
 
-            self._logger.info(f"Norm of the gradient values: {nabla_list}")
+            # self._logger.info(f"Norm of the gradient values: {nabla_list}")
 
 
             # Solve the optimization problem 
@@ -749,9 +751,9 @@ class Controller(Node):
             
             zeta = alpha_barrier_value + partial_time_derivative_value 
             
-            self._logger.info(f"Alpha barrier value: {alpha_barrier_value}")
-            self._logger.info(f"Partial time derivative value: {partial_time_derivative_value}")
-            self._logger.info(f"Zeta value: {zeta}")
+            # self._logger.info(f"Alpha barrier value: {alpha_barrier_value}")
+            # self._logger.info(f"Partial time derivative value: {partial_time_derivative_value}")
+            # self._logger.info(f"Zeta value: {zeta}")
 
             if np.linalg.norm(local_gardient_value) <= 10**-6 :
                 gamma_tilde = 1
@@ -911,12 +913,17 @@ class Controller(Node):
             
             # Create the tasks and the barriers
             for task in self.task_msg_list:
-                if task.interval[1] <= self.reset_point:
-                    self.task_set_1.append(task)
-                else:
-                    self.task_set_2.append(task)
+                assigned = False
+                for i, reset_point in enumerate(self.reset_point):
+                    if task.interval[1] <= reset_point:
+                        self.task_sets[i].append(task)
+                        assigned = True
+                        break
+                if not assigned:
+                    self.task_sets[-1].append(task)
 
-            self.barriers = self.create_barriers_from_tasks(self.task_set_1)
+
+            self.barriers = self.create_barriers_from_tasks(self.task_sets[0])
             self.solver = self.get_qpsolver()
 
             self._ready_to_run_service_loop = True
@@ -929,15 +936,18 @@ class Controller(Node):
     def reset_controller_callback(self):
         """Check if it is time to reset the controller."""
         
-        if self.current_time > self.reset_point:
-            self.reset_timer.cancel()
-            self._ready_to_run_service_loop = False #unnecessary
-            self._ready_to_run_control_loop = False #unnecessary
-            # self._logger.info(f"Current time: {self.current_time}")
+        if self.current_time > self.reset_point[self.current_task_set]:
+
+            if self.current_task_set == len(self.reset_point) - 1:
+                self.reset_timer.cancel()
+            
+            self.current_task_set += 1
+            self._ready_to_run_service_loop = False 
+            self._ready_to_run_control_loop = False 
+
             self.reinitialize_controller()
             
         else:
-            
             pass
 
     def cleared_data_callback(self, msg):
