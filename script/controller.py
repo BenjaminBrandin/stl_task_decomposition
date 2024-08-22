@@ -33,7 +33,7 @@ class Controller(Node):
 
         # Initialize the node
         super().__init__('controller')
-        self.reset_point       : list[int] = [30, 60]          # might be a list in the future if we want more than two sets of tasks
+        self.reset_point       : list[int] = [50]          # might be a list in the future if we want more than two sets of tasks
         self.ready_controllers : set[int]  = set()       # Used as a flag to make sure the agents are synked before starting the next set of tasks
         self.current_task_set  : int       = 0
         # Velocity Command Message
@@ -55,7 +55,7 @@ class Controller(Node):
         self.barrier_func    : list[ca.Function] = [] 
         self.nabla_funs      : list[ca.Function] = [] 
         self.nabla_inputs    : list[dict[str, ca.MX]] = [] 
-        self.enable_collision_avoidance : bool = False
+        self.enable_collision_avoidance : bool = True
         self.num_of_planes_for_approx   = 40
         self.A, self.b, self.input_verticies = create_approximate_ball_constraints2d(radius=self.max_velocity, points_number=self.num_of_planes_for_approx)
         
@@ -449,7 +449,7 @@ class Controller(Node):
         switch = ca.MX.sym("switch",1)  # switch off the constraint when not needed
         load   = ca.MX.sym("load",1)    # switch off the constraint when not needed
 
-        collision_radius = 0.5                              # assuming the two agents are 1m big
+        collision_radius = 0.35                              # assuming the two agents are 1m big
         barrier = (x-y).T@(x-y) - (2*collision_radius)**2   # here the collsion radius is assumed to be 1 for each object 
 
         g_xu = np.eye(self.agents[self.agent_id].state.size)@self.input_vector

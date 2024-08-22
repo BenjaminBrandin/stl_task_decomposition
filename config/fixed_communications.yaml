@@ -9,3 +9,9 @@ connection_3:
 
 connection_4:
   agents: [3, 5]
+
+connection_5:
+  agents: [1, 6]
+
+connection_6:
+  agents: [1, 7]
