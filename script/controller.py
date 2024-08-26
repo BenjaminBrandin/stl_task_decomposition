@@ -16,7 +16,7 @@ from collections import defaultdict
 from stl_decomposition_msgs.msg import TaskMsg, LeaderShipTokens, LeafNodes, ImpactMsg
 from stl_decomposition_msgs.srv import Impact
 from geometry_msgs.msg import Twist, PoseStamped, TransformStamped
-from .dynamics_module import Agent, LeadershipToken, ImpactSolverLP, create_approximate_ball_constraints2d
+from .dynamics_module import Agent, LeadershipToken, ImpactSolverLP, create_approximate_ball_constraints2d, create_box_constraint_function, create_rectangular_constraint_function
 from .builders import (BarrierFunction, StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, 
                       create_barrier_from_task, go_to_goal_predicate_2d, formation_predicate, 
                       epsilon_position_closeness_predicate, collision_avoidance_predicate, conjunction_of_barriers)
@@ -36,8 +36,11 @@ class Controller(Node):
         self.reset_point       : list[int] = [50]          # might be a list in the future if we want more than two sets of tasks
         self.ready_controllers : set[int]  = set()       # Used as a flag to make sure the agents are synked before starting the next set of tasks
         self.current_task_set  : int       = 0
+        
         # Velocity Command Message
-        self.max_velocity : float = 3.0
+        self.max_linear_velocity : float = 3.0
+        self.wheelbase_distance  : float = 0.16
+        self.max_angular_velocity : float = (2*self.max_linear_velocity)/self.wheelbase_distance
         self.vel_cmd_msg  : Twist = Twist()
 
         # Optimization Problem
@@ -55,9 +58,11 @@ class Controller(Node):
         self.barrier_func    : list[ca.Function] = [] 
         self.nabla_funs      : list[ca.Function] = [] 
         self.nabla_inputs    : list[dict[str, ca.MX]] = [] 
-        self.enable_collision_avoidance : bool = True
+        self.enable_collision_avoidance : bool = False
         self.num_of_planes_for_approx   = 40
-        self.A, self.b, self.input_verticies = create_approximate_ball_constraints2d(radius=self.max_velocity, points_number=self.num_of_planes_for_approx)
+        self.A, self.b, self.input_verticies = create_rectangular_constraint_function([[0, self.max_linear_velocity], [-self.max_linear_velocity, self.max_linear_velocity]])
+        # self.A, self.b, self.input_verticies = create_box_constraint_function([[-self.max_linear_velocity, self.max_linear_velocity], [-self.max_angular_velocity, self.max_angular_velocity]])
+        # self.A, self.b, self.input_verticies = create_approximate_ball_constraints2d(radius=self.max_linear_velocity, points_number=self.num_of_planes_for_approx)
         
         # parameters declaration from launch file
         self.declare_parameter('robot_name', rclpy.Parameter.Type.STRING)
@@ -494,7 +499,7 @@ class Controller(Node):
         
         """
         # Create the impact solver that will be used to compute the best and worst impacts on the barriers
-        self._impact_solver : ImpactSolverLP = ImpactSolverLP(agent=self.agents[self.agent_id], max_velocity=self.max_velocity)
+        self._impact_solver : ImpactSolverLP = ImpactSolverLP(agent=self.agents[self.agent_id], max_velocity=self.max_linear_velocity)
 
         # get the neighbors of the current agent
         self.get_leader_and_follower_neighbors()
@@ -603,12 +608,22 @@ class Controller(Node):
                 # self._logger.info(f"Optimal input: {optimal_input}")
                 # self._logger.info(f"Optimal constraints: {sol['g'][self.num_of_planes_for_approx:]}") #[self.num_of_planes_for_approx:] skips the input constraints
         
-            # Publish the velocity command
+            # Publish the velocity command (simulation)
             linear_velocity = optimal_input[:2]
-            clipped_linear_velocity = np.clip(linear_velocity, -self.max_velocity, self.max_velocity)
+            clipped_linear_velocity = np.clip(linear_velocity, -self.max_linear_velocity, self.max_linear_velocity)
             self.vel_cmd_msg.linear.x = clipped_linear_velocity[0][0]
             self.vel_cmd_msg.linear.y = clipped_linear_velocity[1][0]
-        
+
+
+            # # Publish the velocity command (real experiment)
+            # linear_velocity = optimal_input[0]
+            # angular_velocity = optimal_input[1]
+            # clipped_linear_velocity = np.clip(linear_velocity, -self.max_linear_velocity, self.max_linear_velocity)
+            # clipped_angular_velocity = np.clip(angular_velocity, -self.max_angular_velocity, self.max_angular_velocity)
+            # self.vel_cmd_msg.linear.x = clipped_linear_velocity[0][0]
+            # self.vel_cmd_msg.angular.z = clipped_angular_velocity[0][0]
+            # self._logger.info(f"linear velocity: {self.vel_cmd_msg.linear.x}, angular velocity: {self.vel_cmd_msg.angular.z}")
+
             self.vel_pub.publish(self.vel_cmd_msg)
 
             # reset values for the next iteration
@@ -617,7 +632,10 @@ class Controller(Node):
             self._logger.info(f"Current time: {self.current_time}")
 
         else:
-            # self._logger.info("Not ready to run control loop yet...")
+            self.vel_cmd_msg.linear.x = 0.0
+            self.vel_cmd_msg.linear.y = 0.0
+            self.vel_cmd_msg.linear.z = 0.0
+            self.vel_pub.publish(self.vel_cmd_msg)
             pass
         
 
@@ -1072,7 +1090,7 @@ class Controller(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-
+ 
     node = Controller()
     executor = MultiThreadedExecutor()
     executor.add_node(node)

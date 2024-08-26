@@ -49,7 +49,7 @@ class Manager(Node):
         self.agents: dict[int, Agent] = {}
         self.total_tasks: int = 0
         communication_radius: float = 4.0
-        self.fixed_communication_flag: bool = True
+        self.fixed_communication_flag: bool = False
         self.bool_msg :bool = False
         self.ready_controllers : list[int] = []
 

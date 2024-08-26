@@ -14,23 +14,23 @@ initial_conditions:
     y: 0.0
     z: 0.5
     yaw: 0.0
-  agent4:
-    x: 4.0
-    y: 3.0
-    z: 0.5
-    yaw: 0.0
-  agent5:
-    x: -4.0
-    y: -3.0
-    z: 0.5
-    yaw: 0.0
-  agent6:
-    x: -1.0
-    y: -3.0
-    z: 0.5
-    yaw: 0.0
-  agent7:
-    x: 1.0
-    y: -3.0
-    z: 0.5
-    yaw: 0.0
+  # agent4:
+  #   x: 4.0
+  #   y: 3.0
+  #   z: 0.5
+  #   yaw: 0.0
+  # agent5:
+  #   x: -4.0
+  #   y: -3.0
+  #   z: 0.5
+  #   yaw: 0.0
+  # agent6:
+  #   x: -1.0
+  #   y: -3.0
+  #   z: 0.5
+  #   yaw: 0.0
+  # agent7:
+  #   x: 1.0
+  #   y: -3.0
+  #   z: 0.5
+  #   yaw: 0.0
