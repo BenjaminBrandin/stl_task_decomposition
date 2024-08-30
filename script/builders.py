@@ -1407,6 +1407,7 @@ def create_barrier_from_task(task:StlTask, initial_conditions:List[Agent], t_ini
             linear_decay = gamma0 + slope*(time_var - t_init)
 
             gamma    = ca.if_else(time_var <=time_of_satisfaction ,linear_decay,0) # piece wise linear function
+            # gamma    = ca.if_else(time_var <=time_of_satisfaction ,quadratic_decay,0) # piece wise linear function
 
 
 

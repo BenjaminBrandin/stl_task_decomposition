@@ -5,12 +5,12 @@ initial_conditions:
     z: 0.5
     yaw: 0.0
   agent2:
-    x: 3.0
+    x: 1.0
     y: 0.0
     z: 0.5
     yaw: 0.0
   agent3:
-    x: -3.0
+    x: -1.0
     y: 0.0
     z: 0.5
     yaw: 0.0

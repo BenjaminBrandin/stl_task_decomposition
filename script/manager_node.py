@@ -60,7 +60,7 @@ class Manager(Node):
         self.leaf_nodes_pub = self.create_publisher(LeafNodes, "/leaf_nodes", 10)
 
         # setup subscribers
-        self.create_subscription(Int32, "/controller_ready", self.controller_ready_callback, 10)
+        self.create_subscription(Int32, "/controller_ready", self.controller_ready_callback, 100)
 
         # Define package names and subpaths
         pkg_name = 'stl_task_decomposition'
@@ -90,7 +90,7 @@ class Manager(Node):
         for agent_name, state in initial_conditions.items():
             agent_id = int(agent_name.replace('agent', ''))
             position = np.array([state['x'], state['y']])
-            self.agents[agent_id] = Agent(id=agent_id, initial_state=position)
+            self.agents[agent_id] = Agent(id=agent_id, state=position)
             start_positions[agent_id] = position
             
         # Extracting the edges of the tasks
@@ -128,7 +128,7 @@ class Manager(Node):
 
 
         # Wait for the controllers to be ready
-        self.controller_timer = self.create_timer(0.5, self.wait_for_controller_callback)
+        self.controller_timer = self.create_timer(0.4, self.wait_for_controller_callback)
         
 
 

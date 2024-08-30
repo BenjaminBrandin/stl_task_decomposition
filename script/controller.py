@@ -3,7 +3,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
 import tf2_ros
-import time
+import math
 from functools import partial
 import numpy as np
 import casadi as ca
@@ -21,7 +21,7 @@ from .builders import (BarrierFunction, StlTask, TimeInterval, AlwaysOperator, E
                       create_barrier_from_task, go_to_goal_predicate_2d, formation_predicate, 
                       epsilon_position_closeness_predicate, collision_avoidance_predicate, conjunction_of_barriers)
 from tf2_ros import LookupException
-
+from tf_transformations import euler_from_quaternion
 
 class Controller(Node):
     """
@@ -33,15 +33,18 @@ class Controller(Node):
 
         # Initialize the node
         super().__init__('controller')
-        self.reset_point       : list[int] = [50]          # might be a list in the future if we want more than two sets of tasks
+        self.reset_point       : list[int] = [100]          # might be a list in the future if we want more than two sets of tasks
         self.ready_controllers : set[int]  = set()       # Used as a flag to make sure the agents are synked before starting the next set of tasks
         self.current_task_set  : int       = 0
         
         # Velocity Command Message
-        self.max_linear_velocity : float = 3.0
         self.wheelbase_distance  : float = 0.16
-        self.max_angular_velocity : float = (2*self.max_linear_velocity)/self.wheelbase_distance
+        self.lookahead_distance  : float = 0.06 
+        self.max_linear_velocity : float = 0.2
+        self.max_angular_velocity: float = 0.5#2.6*self.lookahead_distance
+        # self.agents[self.agent_id].theta               : float = 0.0
         self.vel_cmd_msg  : Twist = Twist()
+        self.turtle_msg   : Twist = Twist()
 
         # Optimization Problem
         self.scale_factor    = 3
@@ -60,23 +63,26 @@ class Controller(Node):
         self.nabla_inputs    : list[dict[str, ca.MX]] = [] 
         self.enable_collision_avoidance : bool = False
         self.num_of_planes_for_approx   = 40
-        self.A, self.b, self.input_verticies = create_rectangular_constraint_function([[0, self.max_linear_velocity], [-self.max_linear_velocity, self.max_linear_velocity]])
-        # self.A, self.b, self.input_verticies = create_box_constraint_function([[-self.max_linear_velocity, self.max_linear_velocity], [-self.max_angular_velocity, self.max_angular_velocity]])
-        # self.A, self.b, self.input_verticies = create_approximate_ball_constraints2d(radius=self.max_linear_velocity, points_number=self.num_of_planes_for_approx)
+        self.A_func, self.b_func = create_rectangular_constraint_function([[-self.max_linear_velocity, self.max_linear_velocity], [-self.max_angular_velocity, self.max_angular_velocity]])
+        # self.A_func, self.b_func = create_rectangular_constraint_function([[-0.5, 0.5], [-1.0, 1.0]])
         
+
         # parameters declaration from launch file
         self.declare_parameter('robot_name', rclpy.Parameter.Type.STRING)
         self.declare_parameter('num_robots', rclpy.Parameter.Type.INTEGER)
         
         # Agent Information # check if this can be above the optimization problem
-        self.agents : dict[int, Agent]  = {} # position of all the agents in the system including self agent
         self.total_agents               = self.get_parameter('num_robots').get_parameter_value().integer_value
         self.agent_name                 = self.get_parameter('robot_name').get_parameter_value().string_value
         self.agent_id                   = int(self.agent_name[-1])
         self.latest_self_transform      = TransformStamped()
         self._ready_to_run_service_loop : bool = False 
         self._ready_to_run_control_loop : bool = False 
-        self._wait_for_future           : bool = False 
+        self._wait_for_future           : bool = False
+        self.agents : dict[int, Agent]  = {} # position of all the agents in the system including self agent 
+        for id in range(1, self.total_agents + 1):
+            self.agents[id] = Agent(id=id, state=np.array([0.0, 0.0]), theta=0.0)
+
 
         # Information stored about your neighbors
         self.follower_neighbor     : int             = None
@@ -118,19 +124,24 @@ class Controller(Node):
 
         # Setup publishers
         self.vel_pub          = self.create_publisher(Twist, f"/agent{self.agent_id}/cmd_vel", 100)
+        self.turtle_vel_pub   = self.create_publisher(Twist, f"/turtlebot{self.agent_id}/cmd_vel", 10) # ros2 topic pub /turtlebot1/cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}" --rate 50
         self.ready_pub        = self.create_publisher(Int32, "/controller_ready", 10)
         self.agent_pose_pub   = self.create_publisher(PoseStamped, f"/agent{self.agent_id}/agent_pose", 10)
         self.cleared_data_pub = self.create_publisher(Int32, "/cleared_data", 10)
 
         # Setup subscribers
+        # self.create_subscription(PoseStamped, f"/qualisys/turtlebot{self.agent_id}/pose", self.qualisys_pose_callback, 10)
+
         self.create_subscription(LeafNodes, "/leaf_nodes", self.leaf_nodes_callback, 10)
         self.create_subscription(Int32, "/numOfTasks", self.numOfTasks_callback, 10)
         self.create_subscription(TaskMsg, "/tasks", self.task_callback, 100)
         self.create_subscription(LeaderShipTokens, "/tokens", self.tokens_callback, 100)
         self.create_subscription(Int32, "/cleared_data", self.cleared_data_callback, 10)
         for id in range(1, self.total_agents + 1):
-            self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", 
-                                    partial(self.agent_pose_callback, agent_id=id), 10, callback_group=self.rc_group)
+            self.create_subscription(PoseStamped, f"/qualisys/turtlebot{id}/pose", 
+                                    partial(self.qualisys_pose_callback, agent_id=id), 10, callback_group=self.rc_group)
+            # self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", 
+            #                         partial(self.agent_pose_callback, agent_id=id), 10, callback_group=self.rc_group)
 
         # Setup service server
         self.impact_server = self.create_service(Impact, f"/agent{self.agent_id}/impact_service", self.impact_callback, callback_group=self.rc_group)
@@ -150,7 +161,7 @@ class Controller(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         
         # This timer is used to update the agent's pose
-        self.check_transform_timer = self.create_timer(0.4, self.transform_timer_callback, callback_group=self.rc_group) 
+        # self.check_transform_timer = self.create_timer(0.4, self.transform_timer_callback, callback_group=self.rc_group) 
         
         # This timer is used to wait untill all the tasks are received before it initializes the controller
         self.task_check_timer = self.create_timer(0.8, self.check_tasks_callback, callback_group=self.rc_group) 
@@ -163,6 +174,7 @@ class Controller(Node):
 
         # This timer is used to reset the controller and reinitialize it
         self.reset_timer = self.create_timer(1.0, self.reset_controller_callback, callback_group=self.mc_group)
+
 
 
 
@@ -371,6 +383,7 @@ class Controller(Node):
         parameter_list += [ca_tools.entry(f"state_{id}", shape=2) for id in self.agents.keys()]
         parameter_list += [ca_tools.entry("time", shape=1)]
         parameter_list += [ca_tools.entry("gamma", shape=1)]
+        parameter_list += [ca_tools.entry("theta", shape=1)]
 
         
         if self.follower_neighbor is not None: # if the agent does not have a follower then it does not need to compute the best impact for the follower and won't get the worst impact from the follower
@@ -487,6 +500,22 @@ class Controller(Node):
         return ca.vertcat(*collision_contraints)
 
 
+    def get_input_constraints(self) -> ca.MX:
+        """
+        This function creates the input constraints for the optimization problem.
+        
+        """
+        A_func = self.A_func
+        b_func = self.b_func
+
+        A = A_func(self.parameters["theta"])
+        b = b_func(self.parameters["theta"])
+
+        input_constraints = A @ self.input_vector - self.parameters["gamma"] * b
+
+        return input_constraints
+
+
     def get_qpsolver(self) -> ca.qpsol:
         """
         This function creates all that is necessary for the optimization problem and creates the optimization solver.
@@ -498,20 +527,24 @@ class Controller(Node):
             The cost function is a quadratic function of the input vector and the slack variables where the slack variables are used to enforce the barrier constraints.
         
         """
-        # Create the impact solver that will be used to compute the best and worst impacts on the barriers
-        self._impact_solver : ImpactSolverLP = ImpactSolverLP(agent=self.agents[self.agent_id], max_velocity=self.max_linear_velocity)
 
+        
+
+        
         # get the neighbors of the current agent
         self.get_leader_and_follower_neighbors()
         self.relevant_barriers = [barrier for barrier in self.barriers if self.agent_id in barrier.contributing_agents]
         self._barrier_you_are_leading, self._barriers_you_are_following, self._independent_barrier  = self._get_splitted_barriers(barriers = self.relevant_barriers)
 
-
         # Create the parameter structure for the optimization problem --- 'p' ---
         self.parameters = self.controller_parameters()
+        # Create the impact solver that will be used to compute the best and worst impacts on the barriers
+        self._impact_solver : ImpactSolverLP = ImpactSolverLP(agent=self.agents[self.agent_id], max_velocity=[self.max_linear_velocity,self.max_angular_velocity])
+
 
         # Create the constraints for the optimization problem --- 'g' ---
-        input_constraints      = self.A @ self.input_vector - self.parameters["gamma"] * self.b
+        # input_constraints = self.A @ self.input_vector - self.parameters["gamma"] * self.b
+        input_constraints      = self.get_input_constraints() 
         barrier_constraints    = self.generate_barrier_constraints(self.relevant_barriers)
         slack_constraints      = - ca.vertcat(*list(self.slack_variables.values()))
         
@@ -538,6 +571,7 @@ class Controller(Node):
         qp = {'x': opt_vector, 'f': cost, 'g': constraints, 'p': self.parameters}
         solver = ca.qpsol('sol', 'qpoases', qp, {'printLevel': 'none'})
 
+
         return solver
 
 
@@ -557,6 +591,8 @@ class Controller(Node):
 
             current_parameters["time"]  = self.current_time
             current_parameters["gamma"] = self._gamma
+            current_parameters["theta"] = self.agents[self.agent_id].theta#self.agents[self.agent_id].theta
+
             for id in self.agents.keys():
                 current_parameters[f'state_{id}'] = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
 
@@ -604,38 +640,49 @@ class Controller(Node):
             else:
                 sol = self.solver(p=current_parameters, ubg=0)
                 optimal_input = sol['x']
+            
 
-                # self._logger.info(f"Optimal input: {optimal_input}")
-                # self._logger.info(f"Optimal constraints: {sol['g'][self.num_of_planes_for_approx:]}") #[self.num_of_planes_for_approx:] skips the input constraints
-        
-            # Publish the velocity command (simulation)
-            linear_velocity = optimal_input[:2]
+            # Define the counterclockwise rotation matrix R(theta)
+            theta_val = current_parameters["theta"] 
+            R = ca.vertcat(ca.horzcat(ca.cos(theta_val), ca.sin(theta_val)),
+                           ca.horzcat(-ca.sin(theta_val), ca.cos(theta_val)))
+
+            # Extract the optimal input velocity vector
+            u = optimal_input[:2]  # u = [Vx, Vy]^T
+
+            # Calculate the rotated velocity vector 
+            # u_rotated = R @ u  # u_perpend = [v, w*L]^T
+            u_rotated = ca.mtimes(R, u)  # or ca.dot(R, u)
+
+            # Extract linear and angular velocities from the rotated vector (THESE ARE QUATERION VALUES)
+            linear_velocity  = u_rotated[0]                             # v (linear velocity)
+            angular_velocity = u_rotated[1] / self.lookahead_distance   # w (angular velocity)
+            
+
             clipped_linear_velocity = np.clip(linear_velocity, -self.max_linear_velocity, self.max_linear_velocity)
-            self.vel_cmd_msg.linear.x = clipped_linear_velocity[0][0]
-            self.vel_cmd_msg.linear.y = clipped_linear_velocity[1][0]
+            clipped_angular_velocity = np.clip(angular_velocity, -self.max_angular_velocity, self.max_angular_velocity)
 
+            self.turtle_msg.linear.x = clipped_linear_velocity[0][0]
+            self.turtle_msg.angular.z = clipped_angular_velocity[0][0]
 
-            # # Publish the velocity command (real experiment)
-            # linear_velocity = optimal_input[0]
-            # angular_velocity = optimal_input[1]
-            # clipped_linear_velocity = np.clip(linear_velocity, -self.max_linear_velocity, self.max_linear_velocity)
-            # clipped_angular_velocity = np.clip(angular_velocity, -self.max_angular_velocity, self.max_angular_velocity)
-            # self.vel_cmd_msg.linear.x = clipped_linear_velocity[0][0]
-            # self.vel_cmd_msg.angular.z = clipped_angular_velocity[0][0]
-            # self._logger.info(f"linear velocity: {self.vel_cmd_msg.linear.x}, angular velocity: {self.vel_cmd_msg.angular.z}")
+            if self.agent_id == 1:
+                self._logger.info("==============================")
+                # self._logger.info(f"Current time: {self.current_time}")
+                self._logger.info(f"Theta controller: {theta_val}")  
+                self._logger.info(f"Vx: {optimal_input[0]}, Vy: {optimal_input[1]}")
+                self._logger.info(f"v: {linear_velocity}, w: {angular_velocity}")
+                self._logger.info(f"linear velocity: {self.turtle_msg.linear.x:.3f}, angular velocity: {self.turtle_msg.angular.z:.3f}")
+                self._logger.info("==============================")
 
-            self.vel_pub.publish(self.vel_cmd_msg)
+            # self.vel_pub.publish(self.vel_cmd_msg)
+            self.turtle_vel_pub.publish(self.turtle_msg)
 
             # reset values for the next iteration
             self._gamma_tilde = {}
             self._gamma = 1.0
-            self._logger.info(f"Current time: {self.current_time}")
+            # self._logger.info(f"Current time: {self.current_time}")
 
         else:
-            self.vel_cmd_msg.linear.x = 0.0
-            self.vel_cmd_msg.linear.y = 0.0
-            self.vel_cmd_msg.linear.z = 0.0
-            self.vel_pub.publish(self.vel_cmd_msg)
             pass
         
 
@@ -752,7 +799,7 @@ class Controller(Node):
 
         if neighbor_id in self.leader_neighbors: 
             # this can be parallelised for each of the barrier you are a follower of
-            worst_input = self._impact_solver.minimize(Lg = local_gardient_value.T @ g_value) # find the input that minimises the dot product with Lg given the bound on the input
+            worst_input = self._impact_solver.minimize(Lg = local_gardient_value.T @ g_value, theta=np.array([self.agents[self.agent_id].theta])) # find the input that minimises the dot product with Lg given the bound on the input
             if worst_input.shape[0] == 1:
                 worst_input = worst_input.T
         
@@ -813,7 +860,7 @@ class Controller(Node):
             g_value = np.eye(self.agents[self.agent_id].state.size)
 
             # then you are leader of this task and you need to compute your best impact
-            best_input = self._impact_solver.maximize(Lg= local_gardient_value@g_value) # sign changed because you want the maximum in reality. 
+            best_input = self._impact_solver.maximize(Lg= local_gardient_value@g_value, theta=np.array([self.agents[self.agent_id].theta])) # sign changed because you want the maximum in reality. 
             
             if best_input.shape[0] == 1:
                 best_input = best_input.T
@@ -855,7 +902,7 @@ class Controller(Node):
                 g_value = np.eye(self.agents[self.agent_id].state.size)
 
                 # then you are leader of this task and you need to compute your best impact
-                worst_input = self._impact_solver.minimize(Lg= local_gardient_value@g_value) 
+                worst_input = self._impact_solver.minimize(Lg= local_gardient_value@g_value, theta=np.array([self.agents[self.agent_id].theta]))
                 
                 
                 if worst_input.shape[0] == 1:
@@ -872,22 +919,53 @@ class Controller(Node):
 
 
 
-
-
-
     #  ==================== Callbacks ====================
 
-    def agent_pose_callback(self, msg, agent_id):
+
+    # def agent_pose_callback(self, msg: PoseStamped, agent_id):
+    #     """
+    #     Callback function to store all the agents' poses.
+        
+    #     Args:
+    #         msg (PoseStamped): The pose message of the other agents.
+    #         agent_id (int): The ID of the agent extracted from the topic name.
+
+    #     """
+
+    #     if agent_id is not self.agent_id:
+    #         self.agents[agent_id].state = np.array([msg.pose.position.x, msg.pose.position.y])
+
+    #     # Signals the manager node that it is ready to recive the tasks 
+    #     ready = Int32()
+    #     ready.data = agent_id
+    #     self.ready_pub.publish(ready)
+
+        
+
+
+    def qualisys_pose_callback(self, msg: PoseStamped, agent_id):
         """
-        Callback function to store all the agents' poses.
+        Callback function to send the qualisys pose of the agent to the other agents.
         
         Args:
-            msg (PoseStamped): The pose message of the other agents.
-            agent_id (int): The ID of the agent extracted from the topic name.
-
+            msg (PoseStamped): The pose message of the agent.
         """
-        state = np.array([msg.pose.position.x, msg.pose.position.y])
-        self.agents[agent_id] = Agent(id=agent_id, initial_state=state)
+        (roll, pitch, yaw) = euler_from_quaternion([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])
+        
+        self.agents[agent_id].state = np.array([msg.pose.position.x, msg.pose.position.y])
+        self.agents[agent_id].theta = yaw
+        
+
+        # if self.agent_id == 1:
+        #     self._logger.info(f"Theta topic: {self.agents[self.agent_id].theta}")
+
+        # Signals the manager node that it is ready to recive the tasks 
+        ready = Int32()
+        ready.data = agent_id
+        self.ready_pub.publish(ready)
+
+        
+
 
 
     def leaf_nodes_callback(self, msg):
@@ -974,28 +1052,30 @@ class Controller(Node):
 
 
 
-    def transform_timer_callback(self):
+    # def transform_timer_callback(self):
  
-        try:
+    #     try:
 
-            trans = self.tf_buffer.lookup_transform("world", "nexus_"+self.agent_name, Time())
-            # update self tranform
-            self.latest_self_transform = trans
+    #         trans = self.tf_buffer.lookup_transform("world", "nexus_"+self.agent_name, Time())
+            
+    #         # update self tranform
+    #         self.latest_self_transform = trans
 
-            # Send your position to the other agents
-            position_msg = PoseStamped()
-            position_msg.header.stamp = self.get_clock().now().to_msg()
-            position_msg.pose.position.x = trans.transform.translation.x
-            position_msg.pose.position.y = trans.transform.translation.y
-            self.agent_pose_pub.publish(position_msg)
+    #         # Send your position to the other agents
+    #         position_msg = PoseStamped()
+    #         position_msg.header.stamp = self.get_clock().now().to_msg()
+    #         position_msg.pose.position.x = trans.transform.translation.x
+    #         position_msg.pose.position.y = trans.transform.translation.y
+    #         position_msg.pose.orientation.z = trans.transform.rotation.z
+    #         self.agent_pose_pub.publish(position_msg)
 
-            # Send the ready message to the manager
-            ready = Int32()
-            ready.data = self.agent_id
-            self.ready_pub.publish(ready)
+    #         # Send the ready message to the manager
+    #         ready = Int32()
+    #         ready.data = self.agent_id
+    #         self.ready_pub.publish(ready)
         
-        except LookupException as e:
-            self._logger.error('failed to get transform {} \n'.format(repr(e)))
+    #     except LookupException as e:
+    #         self._logger.error('failed to get transform {} \n'.format(repr(e)))
         
 
     def tokens_callback(self, msg):
