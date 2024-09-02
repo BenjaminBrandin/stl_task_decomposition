@@ -111,8 +111,8 @@ def create_rectangular_constraint_function(bounds: List[Tuple[float, float]]) ->
     theta = ca.MX.sym('theta', 1)
     
     # Rotation matrix 
-    R = ca.Function('R', [theta], [ca.vertcat(ca.horzcat(ca.cos(theta), ca.sin(theta)), 
-                                              ca.horzcat(-ca.sin(theta), ca.cos(theta)))]) 
+    R = ca.Function('R', [theta], [ca.vertcat(ca.horzcat(ca.cos(theta), -ca.sin(theta)), 
+                                              ca.horzcat(ca.sin(theta), ca.cos(theta)))]) 
     for i in range(len(bounds)):
         # Append constraints for the upper and lower bounds
 

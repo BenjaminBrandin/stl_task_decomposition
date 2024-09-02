@@ -33,7 +33,8 @@ setup(
     entry_points={
         'console_scripts': [
             'manager_node.py = script.manager_node:main',
-            'controller.py = script.controller:main'
+            'controller.py = script.controller:main',
+            'stop_the_agents.py = script.stop_the_agents:main',
         ],
     },
 )

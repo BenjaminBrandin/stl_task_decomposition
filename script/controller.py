@@ -33,15 +33,16 @@ class Controller(Node):
 
         # Initialize the node
         super().__init__('controller')
-        self.reset_point       : list[int] = [100]          # might be a list in the future if we want more than two sets of tasks
+        self.reset_point       : list[int] = [70]          # might be a list in the future if we want more than two sets of tasks
         self.ready_controllers : set[int]  = set()       # Used as a flag to make sure the agents are synked before starting the next set of tasks
         self.current_task_set  : int       = 0
         
         # Velocity Command Message
         self.wheelbase_distance  : float = 0.16
-        self.lookahead_distance  : float = 0.06 
+        self.lookahead_distance  : float = 0.12 
         self.max_linear_velocity : float = 0.2
-        self.max_angular_velocity: float = 0.5#2.6*self.lookahead_distance
+        self.max_angular_velocity: float = 2.0
+        self.max_lateral_velocity: float = self.max_angular_velocity*self.lookahead_distance
         # self.agents[self.agent_id].theta               : float = 0.0
         self.vel_cmd_msg  : Twist = Twist()
         self.turtle_msg   : Twist = Twist()
@@ -61,10 +62,9 @@ class Controller(Node):
         self.barrier_func    : list[ca.Function] = [] 
         self.nabla_funs      : list[ca.Function] = [] 
         self.nabla_inputs    : list[dict[str, ca.MX]] = [] 
-        self.enable_collision_avoidance : bool = False
+        self.enable_collision_avoidance : bool = True     
         self.num_of_planes_for_approx   = 40
-        self.A_func, self.b_func = create_rectangular_constraint_function([[-self.max_linear_velocity, self.max_linear_velocity], [-self.max_angular_velocity, self.max_angular_velocity]])
-        # self.A_func, self.b_func = create_rectangular_constraint_function([[-0.5, 0.5], [-1.0, 1.0]])
+        self.A_func, self.b_func = create_rectangular_constraint_function([[-self.max_linear_velocity, self.max_linear_velocity], [-self.max_lateral_velocity, self.max_lateral_velocity]])
         
 
         # parameters declaration from launch file
@@ -467,8 +467,8 @@ class Controller(Node):
         switch = ca.MX.sym("switch",1)  # switch off the constraint when not needed
         load   = ca.MX.sym("load",1)    # switch off the constraint when not needed
 
-        collision_radius = 0.35                              # assuming the two agents are 1m big
-        barrier = (x-y).T@(x-y) - (2*collision_radius)**2   # here the collsion radius is assumed to be 1 for each object 
+        collision_radius = 0.30                              # assuming the two agents are 16 cm big
+        barrier = (x-y).T@(x-y) - (2*collision_radius)**2    # here the collsion radius is assumed to be 36 cm for each object 
 
         g_xu = np.eye(self.agents[self.agent_id].state.size)@self.input_vector
         db_dx = ca.jacobian(barrier,x)
@@ -539,7 +539,7 @@ class Controller(Node):
         # Create the parameter structure for the optimization problem --- 'p' ---
         self.parameters = self.controller_parameters()
         # Create the impact solver that will be used to compute the best and worst impacts on the barriers
-        self._impact_solver : ImpactSolverLP = ImpactSolverLP(agent=self.agents[self.agent_id], max_velocity=[self.max_linear_velocity,self.max_angular_velocity])
+        self._impact_solver : ImpactSolverLP = ImpactSolverLP(agent=self.agents[self.agent_id], max_velocity=[self.max_linear_velocity,self.max_lateral_velocity])
 
 
         # Create the constraints for the optimization problem --- 'g' ---
@@ -560,7 +560,11 @@ class Controller(Node):
         opt_vector   = ca.vertcat(self.input_vector, slack_vector)
 
         # Create the object function for the optimization problem --- 'f' ---
-        cost = self.input_vector.T @ self.input_vector
+        Q = ca.diag(ca.vertcat(1,1))
+        R = ca.vertcat(ca.horzcat(ca.cos(self.parameters["theta"]), -ca.sin(self.parameters["theta"])),
+                       ca.horzcat(ca.sin(self.parameters["theta"]), ca.cos(self.parameters["theta"])))
+        
+        cost = self.input_vector.T @ R @ Q @ R.T @ self.input_vector
         for id,slack in self.slack_variables.items():
             if id == self.agent_id:
                 cost += 100* slack**2 
@@ -594,7 +598,7 @@ class Controller(Node):
             current_parameters["theta"] = self.agents[self.agent_id].theta#self.agents[self.agent_id].theta
 
             for id in self.agents.keys():
-                current_parameters[f'state_{id}'] = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
+                current_parameters[f'state_{id}'] = self.agents[id].state#ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
 
             if self.follower_neighbor is not None:
                 current_parameters["epsilon"] = self._worst_impact_from_follower
@@ -602,16 +606,18 @@ class Controller(Node):
 
             if self.enable_collision_avoidance:
                 current_agent_pos = ca.vertcat(self.agents[self.agent_id].state[0], self.agents[self.agent_id].state[1])
+                # current_agent_pos = self.agents[self.agent_id].state
                 
                 for id in range(1, self.total_agents + 1):
                     if id != self.agent_id:
+                        # other_agent_pos = self.agents[id].state
                         other_agent_pos = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
-                        distance = ca.norm_2(ca.vertcat(current_agent_pos[0] - other_agent_pos[0], current_agent_pos[1] - other_agent_pos[1]))
-                        # self._logger.info(f"Distance between agent {self.agent_id} and agent {id}: {distance}")
+                        distance = ca.norm_2(current_agent_pos - other_agent_pos)
+                        self._logger.info(f"Agent {self.agent_id}:{current_agent_pos} and agent {id}:{other_agent_pos} is {distance} apart")
                     
                         current_parameters["collision_pos_" + str(id)] = other_agent_pos
                         
-                        if distance < 2.0:
+                        if distance < 1.5: # 2.0
                             current_parameters["collision_switch_" + str(id)] = 1.0
                             current_parameters["collision_load_" + str(id)] = 1.0
                         else:
@@ -642,37 +648,33 @@ class Controller(Node):
                 optimal_input = sol['x']
             
 
-            # Define the counterclockwise rotation matrix R(theta)
+            # Define the clockwise rotation matrix R(theta)
             theta_val = current_parameters["theta"] 
-            R = ca.vertcat(ca.horzcat(ca.cos(theta_val), ca.sin(theta_val)),
-                           ca.horzcat(-ca.sin(theta_val), ca.cos(theta_val)))
+            R = ca.vertcat(ca.horzcat(ca.cos(theta_val), -ca.sin(theta_val)),
+                           ca.horzcat(ca.sin(theta_val), ca.cos(theta_val)))
 
-            # Extract the optimal input velocity vector
-            u = optimal_input[:2]  # u = [Vx, Vy]^T
-
-            # Calculate the rotated velocity vector 
-            # u_rotated = R @ u  # u_perpend = [v, w*L]^T
-            u_rotated = ca.mtimes(R, u)  # or ca.dot(R, u)
+            # Extract the optimal input velocity vector and calculate the rotated velocity vector 
+            u         = optimal_input[:2]         # u = [Vx, Vy]^T
+            u_rotated = ca.mtimes(R.T, u)           # u_perpend = [v, w*L]^T
 
             # Extract linear and angular velocities from the rotated vector (THESE ARE QUATERION VALUES)
             linear_velocity  = u_rotated[0]                             # v (linear velocity)
             angular_velocity = u_rotated[1] / self.lookahead_distance   # w (angular velocity)
             
-
             clipped_linear_velocity = np.clip(linear_velocity, -self.max_linear_velocity, self.max_linear_velocity)
             clipped_angular_velocity = np.clip(angular_velocity, -self.max_angular_velocity, self.max_angular_velocity)
 
             self.turtle_msg.linear.x = clipped_linear_velocity[0][0]
             self.turtle_msg.angular.z = clipped_angular_velocity[0][0]
 
-            if self.agent_id == 1:
-                self._logger.info("==============================")
-                # self._logger.info(f"Current time: {self.current_time}")
-                self._logger.info(f"Theta controller: {theta_val}")  
-                self._logger.info(f"Vx: {optimal_input[0]}, Vy: {optimal_input[1]}")
-                self._logger.info(f"v: {linear_velocity}, w: {angular_velocity}")
-                self._logger.info(f"linear velocity: {self.turtle_msg.linear.x:.3f}, angular velocity: {self.turtle_msg.angular.z:.3f}")
-                self._logger.info("==============================")
+            # if self.agent_id == 1:
+            # self._logger.info("==============================")
+            # self._logger.info(f"Current time: {self.current_time}")
+            # self._logger.info(f"Theta controller: {theta_val}")  
+            # self._logger.info(f"Vx: {optimal_input[0]}, Vy: {optimal_input[1]}")
+            # self._logger.info(f"v: {linear_velocity}, w: {angular_velocity}")
+            # self._logger.info(f"linear velocity: {self.turtle_msg.linear.x:.3f}, angular velocity: {self.turtle_msg.angular.z:.3f}")
+            # self._logger.info("==============================")
 
             # self.vel_pub.publish(self.vel_cmd_msg)
             self.turtle_vel_pub.publish(self.turtle_msg)
@@ -922,23 +924,6 @@ class Controller(Node):
     #  ==================== Callbacks ====================
 
 
-    # def agent_pose_callback(self, msg: PoseStamped, agent_id):
-    #     """
-    #     Callback function to store all the agents' poses.
-        
-    #     Args:
-    #         msg (PoseStamped): The pose message of the other agents.
-    #         agent_id (int): The ID of the agent extracted from the topic name.
-
-    #     """
-
-    #     if agent_id is not self.agent_id:
-    #         self.agents[agent_id].state = np.array([msg.pose.position.x, msg.pose.position.y])
-
-    #     # Signals the manager node that it is ready to recive the tasks 
-    #     ready = Int32()
-    #     ready.data = agent_id
-    #     self.ready_pub.publish(ready)
 
         
 
@@ -955,17 +940,10 @@ class Controller(Node):
         self.agents[agent_id].state = np.array([msg.pose.position.x, msg.pose.position.y])
         self.agents[agent_id].theta = yaw
         
-
-        # if self.agent_id == 1:
-        #     self._logger.info(f"Theta topic: {self.agents[self.agent_id].theta}")
-
         # Signals the manager node that it is ready to recive the tasks 
         ready = Int32()
         ready.data = agent_id
         self.ready_pub.publish(ready)
-
-        
-
 
 
     def leaf_nodes_callback(self, msg):
@@ -1051,32 +1029,6 @@ class Controller(Node):
         self.ready_controllers.add(agent)
 
 
-
-    # def transform_timer_callback(self):
- 
-    #     try:
-
-    #         trans = self.tf_buffer.lookup_transform("world", "nexus_"+self.agent_name, Time())
-            
-    #         # update self tranform
-    #         self.latest_self_transform = trans
-
-    #         # Send your position to the other agents
-    #         position_msg = PoseStamped()
-    #         position_msg.header.stamp = self.get_clock().now().to_msg()
-    #         position_msg.pose.position.x = trans.transform.translation.x
-    #         position_msg.pose.position.y = trans.transform.translation.y
-    #         position_msg.pose.orientation.z = trans.transform.rotation.z
-    #         self.agent_pose_pub.publish(position_msg)
-
-    #         # Send the ready message to the manager
-    #         ready = Int32()
-    #         ready.data = self.agent_id
-    #         self.ready_pub.publish(ready)
-        
-    #     except LookupException as e:
-    #         self._logger.error('failed to get transform {} \n'.format(repr(e)))
-        
 
     def tokens_callback(self, msg):
         """
