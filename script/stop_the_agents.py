@@ -22,10 +22,10 @@ class StopAgents(Node):
         self.turtle_vel_pub: dict = {}
         # Setup subscribers
         for id in range(1, self.total_agents+1):
-            self.turtle_vel_pub[id] = self.create_publisher(Twist, f"/turtlebot{id}/cmd_vel", 10)
+            self.turtle_vel_pub[id] = self.create_publisher(Twist, f"/turtlebot{id}/cmd_vel", 5)
 
         # Stop the agents
-        self.stop_agents_timer = self.create_timer(0.1, self.create_stop_msg)
+        self.stop_agents_timer = self.create_timer(0.05, self.create_stop_msg)
 
     def create_stop_msg(self):
         # Stop the agents

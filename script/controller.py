@@ -33,7 +33,7 @@ class Controller(Node):
 
         # Initialize the node
         super().__init__('controller')
-        self.reset_point       : list[int] = [70]          # might be a list in the future if we want more than two sets of tasks
+        self.reset_point       : list[int] = [80, 170]          # might be a list in the future if we want more than two sets of tasks
         self.ready_controllers : set[int]  = set()       # Used as a flag to make sure the agents are synked before starting the next set of tasks
         self.current_task_set  : int       = 0
         
@@ -62,7 +62,7 @@ class Controller(Node):
         self.barrier_func    : list[ca.Function] = [] 
         self.nabla_funs      : list[ca.Function] = [] 
         self.nabla_inputs    : list[dict[str, ca.MX]] = [] 
-        self.enable_collision_avoidance : bool = True     
+        self.enable_collision_avoidance : bool = False     
         self.num_of_planes_for_approx   = 40
         self.A_func, self.b_func = create_rectangular_constraint_function([[-self.max_linear_velocity, self.max_linear_velocity], [-self.max_lateral_velocity, self.max_lateral_velocity]])
         
@@ -467,7 +467,7 @@ class Controller(Node):
         switch = ca.MX.sym("switch",1)  # switch off the constraint when not needed
         load   = ca.MX.sym("load",1)    # switch off the constraint when not needed
 
-        collision_radius = 0.30                              # assuming the two agents are 16 cm big
+        collision_radius = 0.25                              # assuming the two agents are 16 cm big
         barrier = (x-y).T@(x-y) - (2*collision_radius)**2    # here the collsion radius is assumed to be 36 cm for each object 
 
         g_xu = np.eye(self.agents[self.agent_id].state.size)@self.input_vector
@@ -667,14 +667,14 @@ class Controller(Node):
             self.turtle_msg.linear.x = clipped_linear_velocity[0][0]
             self.turtle_msg.angular.z = clipped_angular_velocity[0][0]
 
-            # if self.agent_id == 1:
-            # self._logger.info("==============================")
-            # self._logger.info(f"Current time: {self.current_time}")
-            # self._logger.info(f"Theta controller: {theta_val}")  
-            # self._logger.info(f"Vx: {optimal_input[0]}, Vy: {optimal_input[1]}")
-            # self._logger.info(f"v: {linear_velocity}, w: {angular_velocity}")
-            # self._logger.info(f"linear velocity: {self.turtle_msg.linear.x:.3f}, angular velocity: {self.turtle_msg.angular.z:.3f}")
-            # self._logger.info("==============================")
+            if self.agent_id == 1:
+                # self._logger.info("==============================")
+                self._logger.info(f"Current time: {self.current_time}")
+                # self._logger.info(f"Theta controller: {theta_val}")  
+                # self._logger.info(f"Vx: {optimal_input[0]}, Vy: {optimal_input[1]}")
+                # self._logger.info(f"v: {linear_velocity}, w: {angular_velocity}")
+                # self._logger.info(f"linear velocity: {self.turtle_msg.linear.x:.3f}, angular velocity: {self.turtle_msg.angular.z:.3f}")
+                # self._logger.info("==============================")
 
             # self.vel_pub.publish(self.vel_cmd_msg)
             self.turtle_vel_pub.publish(self.turtle_msg)
