@@ -1051,7 +1051,7 @@ class StlTask:
                     constraints +=[ A@vertices[:,jj] - b<=0 ] 
             else :
                 for jj in range(numVertices) : # number of vertices of hypercube is computable given the stateSpaceDimension of the problem
-                    constraints +=[ self._predicate.function_edge(vertices[:,jj])<=0 ] 
+                    constraints +=[ self._predicate.function_edge(vertices[:,jj])>=0 ] 
                 
         elif (not formula.isParametric) and self.isParametric :  
             raise NotImplementedError("Trying to include a non parameteric formula inside a parameteric one. Not supported")

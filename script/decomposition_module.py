@@ -23,6 +23,7 @@ SOFTWARE.
 """
 
 import itertools
+import matplotlib.pyplot as plt
 import numpy as np
 import casadi as ca
 import networkx as nx
@@ -577,7 +578,7 @@ def computeNewTaskGraph(task_graph:nx.Graph, comm_graph:nx.Graph, task_edges:Lis
             edges_to_remove.append(tuple(edge))
 
             # retrive all the formulas to be decomposed
-            formulasToBeDecomposed: list[StlTask] = [task for task in edge_container.task_list]
+            formulasToBeDecomposed: list[StlTask] = edge_container.task_list #[task for task in edge_container.task_list]
 
             # path finding and grouping nodes
             path = nx.shortest_path(comm_graph,source=edge[0],target=edge[1]) # path of agents from start to end
@@ -589,7 +590,7 @@ def computeNewTaskGraph(task_graph:nx.Graph, comm_graph:nx.Graph, task_edges:Lis
                 
                 originalTemporalOperator       = formula.temporal_operator                      # get time interval of the orginal operator
                 originalPredicate              = formula.predicate                              # get the predicate function
-                originalEdgeTuple              = tuple(formula.contributing_agents)             # get the edge tuple
+                originalEdgeTuple              = formula.edgeTuple                              # get the edge tuple
                 
                 if originalEdgeTuple == (edge[0],edge[1]) : #case the direction is correct
                     edgesThroughPath = edgeSet(path=path) # find edges along the path
@@ -600,7 +601,12 @@ def computeNewTaskGraph(task_graph:nx.Graph, comm_graph:nx.Graph, task_edges:Lis
                 for sourceNode,targetNode in edgesThroughPath:
                     
                     # create a new parameteric subformula object
-                    subformula = StlTask(predicate=PredicateFunction(function_name=originalPredicate.function_name, function=None, function_edge=originalPredicate.function_edge, sourceNode=sourceNode, targetNode=targetNode, center=originalPredicate.center, epsilon=originalPredicate.epsilon), temporal_operator=originalTemporalOperator)
+                    subformula = StlTask(predicate=PredicateFunction(function_name=originalPredicate.function_name, 
+                                                                     function=None, 
+                                                                     function_edge=originalPredicate.function_edge, 
+                                                                     sourceNode=sourceNode, targetNode=targetNode, 
+                                                                     center=originalPredicate.center, epsilon=originalPredicate.epsilon), 
+                                                                     temporal_operator=originalTemporalOperator)
                     
                     # warm start of the variables involved in the optimization TODO: check if you have a better warm start base on the specification you have. Maybe some more intelligen heuristic
                     globalOptimizer.set_initial(subformula.centerVar, start_position[targetNode]-start_position[sourceNode]) # target - source: Following the original
@@ -629,7 +635,7 @@ def computeNewTaskGraph(task_graph:nx.Graph, comm_graph:nx.Graph, task_edges:Lis
                 # now set that the final i sum has to stay inside the original predicate
                 minowkySumVertices  = pathMinkowskiSumVertices(edgeSubformulas,  edgesThroughPath)  # return the symbolic vertices f the hypercube to define the constraints
                 for jj in range(numberOfVerticesHypercube):
-                    pathConstraints.append(originalPredicate.function_edge(minowkySumVertices[:,jj])<=0) # for each vertex of the minkowski sum ensure they are inside the original predicate superlevel-set
+                    pathConstraints.append(originalPredicate.function_edge(minowkySumVertices[:,jj])>=0) # for each vertex of the minkowski sum ensure they are inside the original predicate superlevel-set
             
             decompositionSolved.append((path,edgeSubformulas))    
 
@@ -641,10 +647,9 @@ def computeNewTaskGraph(task_graph:nx.Graph, comm_graph:nx.Graph, task_edges:Lis
 
     # Remove the edges that have been decomposed
     task_graph.remove_edges_from(edges_to_remove)
-    
-    if decompositionOccurred :
-        task_graph = task_graph.to_directed() # This line was added because of the error "networkx.exception.NetworkXNotImplemented: not implemented for undirected type"
 
+    if decompositionOccurred :
+        
         # adding cycles constraints to the optimization problem
         cycles :list[list[int]] = sorted(nx.simple_cycles(task_graph))
         cycles = [cycle for cycle in cycles if len(cycle)>1] # eliminate self loopscycles)
@@ -669,13 +674,14 @@ def computeNewTaskGraph(task_graph:nx.Graph, comm_graph:nx.Graph, task_edges:Lis
             for formula in attr.task_list:
                 if formula.isParametric :
                     cost = cost + 1/computeVolume(formula.nuVar)
+                    # cost = cost -ca.sum1(formula.nuVar)
             
             
         constraints = [*maxCommunicationConstraints,*positiveNuConstraint,*pathConstraints,*cyclesConstraints,*overloadingConstraints]
         globalOptimizer.subject_to(constraints) # Maximum Distance of a constraint
 
 
-        options = {"ipopt": {"print_level": 0}}
+        options = {"ipopt": {"print_level": 0}}#, "print_time": True, "expand": True}
         globalOptimizer.solver("ipopt", options)
         solution = globalOptimizer.solve()
 
@@ -706,6 +712,7 @@ def computeNewTaskGraph(task_graph:nx.Graph, comm_graph:nx.Graph, task_edges:Lis
                 print(f"EDGE: {formula.edgeTuple}")
                 print(f"TYPE: {formula.type}")
                 print(f"CENTER: {formula.center}")
+                # print(f"NU: {solution.value(formula.nuVar)}")
                 print(f"EPSILON: {formula.epsilon}")
                 print(f"TEMP_OP: {formula.temporal_type}")
                 print(f"INTERVAL: {formula.time_interval.aslist}")

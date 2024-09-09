@@ -48,7 +48,8 @@ class Manager(Node):
 
         self.agents: dict[int, Agent] = {}
         self.total_tasks: int = 0
-        communication_radius: float = 4.0
+        self.phase_change: list[int] = [80, 170]
+        communication_radius: float = 1.5
         self.fixed_communication_flag: bool = True
         self.bool_msg :bool = False
         self.ready_controllers : list[int] = []
@@ -93,24 +94,44 @@ class Manager(Node):
             self.agents[agent_id] = Agent(id=agent_id, state=position)
             start_positions[agent_id] = position
             
-        # Extracting the edges of the tasks
-        task_edges = [tuple(task["EDGE"]) for task in self.tasks.values()]
+        # Dynamically create phase-specific edge lists and task graphs
+        phase_edges = [[] for _ in range(len(self.phase_change) + 1)]
+        self.task_graphs = []
 
-        # Creating the graphs
-        communication_edges = [tuple(edge["agents"]) for edge in self.fixed_communications.values()]
+        # Extract edges of the tasks for each phase
+        for task in self.tasks.values():
+            end_interval = task["INTERVAL"][1]
+            edge_tuple = tuple(task["EDGE"])
+
+            for i, change_point in enumerate(self.phase_change):
+                if end_interval <= change_point:
+                    phase_edges[i].append(edge_tuple)
+                    break
+            else:
+                phase_edges[-1].append(edge_tuple)
+
+        # Create a task graph for each phase and 
+        for edges in phase_edges:
+            task_graph = create_task_graph_from_edges(edge_list=edges) # creates an empty task graph
+            self.task_graphs.append(task_graph)
+        
+        # Create a copy of the task graph for reference
+        self.initial_task_graphs = [tg.copy() for tg in self.task_graphs]
+
+
 
         if self.fixed_communication_flag:
+            communication_edges = [tuple(edge["agents"]) for edge in self.fixed_communications.values()]
             self.comm_graph = fixed_communication_graph(start_positions, communication_edges)  # creates a communication graph using yaml file with fixed edges.
         else:
             self.comm_graph = create_communication_graph_from_states(start_positions, communication_radius)  # creates a communication graph using yaml file with fixed edges.
         
-        
+        # Fill the task graph with tasks
+        self.update_graphs()
 
-        self.task_graph = create_task_graph_from_edges(edge_list = task_edges) # creates an empty task graph
-        self.initial_task_graph = self.task_graph.copy()
 
-        # Fill the task graph with the tasks and decompose the edges that are not communicative
-        self.update_graph()
+
+
 
         self.comm_graph: nx.Graph = nx.minimum_spanning_tree(self.comm_graph)
 
@@ -122,9 +143,13 @@ class Manager(Node):
 
         self.tokens = self.token_passing_algorithm(self.comm_graph)
 
-        computeNewTaskGraph(self.task_graph, self.comm_graph, task_edges, start_position=start_positions)
+
+        # Apply updates to each task graph
+        for i, task_graph in enumerate(self.task_graphs):
+            computeNewTaskGraph(task_graph, self.comm_graph, phase_edges[i], start_position=start_positions)
+
         # self.print_tasks()    # Uncomment to print the tasks
-        # self.plot_graph()     # Uncomment to plot the graphs
+        self.plot_graph()     # Uncomment to plot the graphs
 
 
         # Wait for the controllers to be ready
@@ -132,16 +157,21 @@ class Manager(Node):
         
 
 
-
-
-
-    def update_graph(self):
-        """Adds the tasks to the edges of the task graph."""
+    def update_graphs(self):
+        """Adds the tasks to the edges of the task graphs for all phases."""
         for task_info in self.tasks.values():
             # Create the task
             task = self.create_task(task_info)
-            # Add the task to the edge
-            self.task_graph[task_info["EDGE"][0]][task_info["EDGE"][1]]["container"].add_tasks(task)
+            # Determine which phase graph the task belongs to and add it to the edge
+            end_interval = task_info["INTERVAL"][1]
+            for i, change_point in enumerate(self.phase_change):
+                if end_interval <= change_point:
+                    self.task_graphs[i][task_info["EDGE"][0]][task_info["EDGE"][1]]["container"].add_tasks(task)
+                    break
+            else:
+                self.task_graphs[-1][task_info["EDGE"][0]][task_info["EDGE"][1]]["container"].add_tasks(task)
+
+
 
 
     def create_task(self, task_info) -> StlTask:
@@ -191,34 +221,51 @@ class Manager(Node):
         return task
 
 
+
     def plot_graph(self):
-        """Plots the communication graph, initial task graph, and decomposed task graph."""
-        fig, ax = plt.subplots(1, 3)
+        """Plots the communication graph, initial task graphs, and decomposed task graphs."""
+        num_phases = len(self.task_graphs)
+        num_graphs = num_phases * 2 + 1  # Communication graph + initial + decomposed for each phase
+        
+        # Adjust the figure size dynamically based on the number of graphs
+        fig, ax = plt.subplots(1, num_graphs, figsize=(5 * num_graphs, 5))
+        
+        # Plot the communication graph
         self.draw_graph(ax[0], self.comm_graph, "Communication Graph")
-        self.draw_graph(ax[1], self.initial_task_graph, "Initial Task Graph")
-        self.draw_graph(ax[2], self.task_graph, "Decomposed Task Graph")
+        
+        # Plot initial and decomposed task graphs for each phase
+        for i in range(num_phases):
+            self.draw_graph(ax[2 * i + 1], self.initial_task_graphs[i], f"Initial Task Graph - Phase {i + 1}")
+            self.draw_graph(ax[2 * i + 2], self.task_graphs[i], f"Decomposed Task Graph - Phase {i + 1}")
+        
+        # Adjust layout to prevent overlapping
+        plt.tight_layout()
         plt.show()
 
     def draw_graph(self, ax, graph, title):
         """Draws the graph."""
-        nx.draw(graph, with_labels=True, font_weight='bold', ax=ax)
+        pos = nx.spring_layout(graph)  # Use spring layout for better visualization
+        nx.draw(graph, pos, with_labels=True, font_weight='bold', ax=ax, node_size=500, node_color="lightblue", edge_color="gray")
         ax.set_title(title)
+
+
 
 
     def print_tasks(self):
         """Prints the tasks of the task graph."""
-        for i,j,attr in self.task_graph.edges(data=True):
-            tasks = attr["container"].task_list
-            for task in tasks:
-                print("-----------------------------------")
-                print(f"EDGE: {list(task.edgeTuple)}")
-                print(f"TYPE: {task.type}")
-                print(f"CENTER: {task.center}")
-                print(f"EPSILON: {task.epsilon}")
-                print(f"TEMP_OP: {task.temporal_type}")
-                print(f"INTERVAL: {task.time_interval.aslist}")
-                print(f"INVOLVED_AGENTS: {task.contributing_agents}")
-                print("-----------------------------------")
+        for phase_index, task_graph in enumerate(self.task_graphs):
+            for i,j,attr in task_graph.edges(data=True):
+                tasks = attr["container"].task_list
+                for task in tasks:
+                    print("-----------------------------------")
+                    print(f"EDGE: {list(task.edgeTuple)}")
+                    print(f"TYPE: {task.type}")
+                    print(f"CENTER: {task.center}")
+                    print(f"EPSILON: {task.epsilon}")
+                    print(f"TEMP_OP: {task.temporal_type}")
+                    print(f"INTERVAL: {task.time_interval.aslist}")
+                    print(f"INVOLVED_AGENTS: {task.contributing_agents}")
+                    print("-----------------------------------")
 
 
     
@@ -343,20 +390,22 @@ class Manager(Node):
     def publish_tasks(self):
         """Publishes the tasks to the topic tasks."""
         tasks: list[StlTask] = []
-        for i,j,attr in self.task_graph.edges(data=True):
-            tasks = attr["container"].task_list
-            for task in tasks:
-                self.total_tasks += 1
-                task_message = TaskMsg()
-                task_message.edge = list(task.edgeTuple)
-                task_message.type = task.type                               
-                task_message.center = task.center                           
-                task_message.epsilon = task.epsilon                         
-                task_message.temp_op = task.temporal_type
-                task_message.interval = task.time_interval.aslist
-                task_message.involved_agents = task.contributing_agents                             
-                # Then publish the message
-                self.task_pub.publish(task_message)
+        # Iterate through each task graph corresponding to each phase
+        for phase_index, task_graph in enumerate(self.task_graphs):
+            for i,j,attr in task_graph.edges(data=True):
+                tasks = attr["container"].task_list
+                for task in tasks:
+                    self.total_tasks += 1
+                    task_message = TaskMsg()
+                    task_message.edge = list(task.edgeTuple)
+                    task_message.type = task.type                               
+                    task_message.center = task.center                           
+                    task_message.epsilon = task.epsilon                         
+                    task_message.temp_op = task.temporal_type
+                    task_message.interval = task.time_interval.aslist
+                    task_message.involved_agents = task.contributing_agents                             
+                    # Then publish the message
+                    self.task_pub.publish(task_message)
 
 
     def publish_numOfTask(self):
