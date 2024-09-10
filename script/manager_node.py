@@ -19,7 +19,7 @@ from .dynamics_module import Agent, LeadershipToken
 from .builders import (StlTask, TimeInterval, AlwaysOperator, EventuallyOperator, go_to_goal_predicate_2d, 
                       formation_predicate, epsilon_position_closeness_predicate)
 
-Ti = Dict[int,LeadershipToken] # token set fo a single agent
+Ti = Dict[int,LeadershipToken] # token set for a single agent
 
 class Manager(Node):
 
@@ -49,7 +49,7 @@ class Manager(Node):
         self.agents: dict[int, Agent] = {}
         self.total_tasks: int = 0
         self.phase_change: list[int] = [80, 170]
-        communication_radius: float = 1.5
+        communication_radius: float = 2.0
         self.fixed_communication_flag: bool = True
         self.bool_msg :bool = False
         self.ready_controllers : list[int] = []
@@ -149,7 +149,7 @@ class Manager(Node):
             computeNewTaskGraph(task_graph, self.comm_graph, phase_edges[i], start_position=start_positions)
 
         # self.print_tasks()    # Uncomment to print the tasks
-        self.plot_graph()     # Uncomment to plot the graphs
+        # self.plot_graph()     # Uncomment to plot the graphs
 
 
         # Wait for the controllers to be ready
@@ -219,6 +219,39 @@ class Manager(Node):
         # Create the task
         task = StlTask(predicate=predicate, temporal_operator=temporal_operator)
         return task
+
+
+
+    # def plot_graph(self):
+    #     """Plots the communication graph, initial task graphs, and decomposed task graphs."""
+    #     num_phases = len(self.task_graphs)
+
+    #     # Plot the communication graph in its own figure
+    #     fig, ax = plt.subplots(figsize=(5, 5))
+    #     self.draw_graph(ax, self.comm_graph, "Communication Graph")
+    #     plt.tight_layout()
+    #     plt.show()
+
+    #     # Plot initial and decomposed task graphs for each phase in the same figure
+    #     for i in range(num_phases):
+    #         fig, ax = plt.subplots(1, 2, figsize=(10, 5))  # Create 1 row, 2 columns of subplots
+
+    #         # Plot initial task graph for the current phase in the left subplot
+    #         self.draw_graph(ax[0], self.initial_task_graphs[i], f"Initial Task Graph - Phase {i + 1}")
+
+    #         # Plot decomposed task graph for the current phase in the right subplot
+    #         self.draw_graph(ax[1], self.task_graphs[i], f"Decomposed Task Graph - Phase {i + 1}")
+
+    #         # Adjust layout to prevent overlapping and display the figure
+    #         plt.tight_layout()
+    #         plt.show()
+
+    # def draw_graph(self, ax, graph, title):
+    #     """Draws the graph."""
+    #     pos = nx.spring_layout(graph)  # Use spring layout for better visualization
+    #     nx.draw(graph, pos, with_labels=True, font_weight='bold', ax=ax, 
+    #             node_size=500, node_color="lightblue", edge_color="gray")
+    #     ax.set_title(title)
 
 
 

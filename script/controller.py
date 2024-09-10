@@ -467,7 +467,7 @@ class Controller(Node):
         switch = ca.MX.sym("switch",1)  # switch off the constraint when not needed
         load   = ca.MX.sym("load",1)    # switch off the constraint when not needed
 
-        collision_radius = 0.25                              # assuming the two agents are 16 cm big
+        collision_radius = 0.20                              # assuming the two agents are 16 cm big
         barrier = (x-y).T@(x-y) - (2*collision_radius)**2    # here the collsion radius is assumed to be 36 cm for each object 
 
         g_xu = np.eye(self.agents[self.agent_id].state.size)@self.input_vector
@@ -613,7 +613,7 @@ class Controller(Node):
                         # other_agent_pos = self.agents[id].state
                         other_agent_pos = ca.vertcat(self.agents[id].state[0], self.agents[id].state[1])
                         distance = ca.norm_2(current_agent_pos - other_agent_pos)
-                        self._logger.info(f"Agent {self.agent_id}:{current_agent_pos} and agent {id}:{other_agent_pos} is {distance} apart")
+                        # self._logger.info(f"Agent {self.agent_id}:{current_agent_pos} and agent {id}:{other_agent_pos} is {distance} apart")
                     
                         current_parameters["collision_pos_" + str(id)] = other_agent_pos
                         
@@ -1004,6 +1004,7 @@ class Controller(Node):
             self._ready_to_run_control_loop = True
 
         else:
+            # self._logger.info(f"Waiting for {self.total_tasks - len(self.task_msg_list)} tasks to be received...")
             pass
 
     
