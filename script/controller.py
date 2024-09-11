@@ -123,8 +123,9 @@ class Controller(Node):
         
 
         # Setup publishers
-        self.vel_pub          = self.create_publisher(Twist, f"/agent{self.agent_id}/cmd_vel", 100)
-        self.turtle_vel_pub   = self.create_publisher(Twist, f"/turtlebot{self.agent_id}/cmd_vel", 10) # ros2 topic pub /turtlebot1/cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}" --rate 50
+        # self.vel_pub          = self.create_publisher(Twist, f"/agent{self.agent_id}/cmd_vel", 100)
+        self.turtle_vel_pub   = self.create_publisher(Twist, f"/turtlebot{self.agent_id}/cmd_vel", 10)
+        self.rosie_vel_pub    = self.create_publisher(Twist, f"/rosie0/cmd_vel", 10) 
         self.ready_pub        = self.create_publisher(Int32, "/controller_ready", 10)
         self.agent_pose_pub   = self.create_publisher(PoseStamped, f"/agent{self.agent_id}/agent_pose", 10)
         self.cleared_data_pub = self.create_publisher(Int32, "/cleared_data", 10)
@@ -137,11 +138,9 @@ class Controller(Node):
         self.create_subscription(TaskMsg, "/tasks", self.task_callback, 100)
         self.create_subscription(LeaderShipTokens, "/tokens", self.tokens_callback, 100)
         self.create_subscription(Int32, "/cleared_data", self.cleared_data_callback, 10)
-        for id in range(1, self.total_agents + 1):
+        for id in range(1, self.total_agents + 1):  
             self.create_subscription(PoseStamped, f"/qualisys/turtlebot{id}/pose", 
                                     partial(self.qualisys_pose_callback, agent_id=id), 10, callback_group=self.rc_group)
-            # self.create_subscription(PoseStamped, f"/agent{id}/agent_pose", 
-            #                         partial(self.agent_pose_callback, agent_id=id), 10, callback_group=self.rc_group)
 
         # Setup service server
         self.impact_server = self.create_service(Impact, f"/agent{self.agent_id}/impact_service", self.impact_callback, callback_group=self.rc_group)
@@ -647,37 +646,50 @@ class Controller(Node):
                 sol = self.solver(p=current_parameters, ubg=0)
                 optimal_input = sol['x']
             
-
-            # Define the clockwise rotation matrix R(theta)
-            theta_val = current_parameters["theta"] 
-            R = ca.vertcat(ca.horzcat(ca.cos(theta_val), -ca.sin(theta_val)),
-                           ca.horzcat(ca.sin(theta_val), ca.cos(theta_val)))
-
-            # Extract the optimal input velocity vector and calculate the rotated velocity vector 
-            u         = optimal_input[:2]         # u = [Vx, Vy]^T
-            u_rotated = ca.mtimes(R.T, u)           # u_perpend = [v, w*L]^T
-
-            # Extract linear and angular velocities from the rotated vector (THESE ARE QUATERION VALUES)
-            linear_velocity  = u_rotated[0]                             # v (linear velocity)
-            angular_velocity = u_rotated[1] / self.lookahead_distance   # w (angular velocity)
+            if self.agent_id == 7:
+                # Publish the velocity command
+                linear_velocity = optimal_input[:2]
+                clipped_linear_velocity = np.clip(linear_velocity, -self.max_linear_velocity, self.max_linear_velocity)
+                self.vel_cmd_msg.linear.x = clipped_linear_velocity[0][0]
+                self.vel_cmd_msg.linear.y = clipped_linear_velocity[1][0]
             
-            clipped_linear_velocity = np.clip(linear_velocity, -self.max_linear_velocity, self.max_linear_velocity)
-            clipped_angular_velocity = np.clip(angular_velocity, -self.max_angular_velocity, self.max_angular_velocity)
+                self.rosie_vel_pub.publish(self.vel_cmd_msg)
+            else:
 
-            self.turtle_msg.linear.x = clipped_linear_velocity[0][0]
-            self.turtle_msg.angular.z = clipped_angular_velocity[0][0]
+                # Define the clockwise rotation matrix R(theta)
+                theta_val = current_parameters["theta"] 
+                R = ca.vertcat(ca.horzcat(ca.cos(theta_val), -ca.sin(theta_val)),
+                            ca.horzcat(ca.sin(theta_val), ca.cos(theta_val)))
 
-            if self.agent_id == 1:
-                # self._logger.info("==============================")
-                self._logger.info(f"Current time: {self.current_time}")
-                # self._logger.info(f"Theta controller: {theta_val}")  
-                # self._logger.info(f"Vx: {optimal_input[0]}, Vy: {optimal_input[1]}")
-                # self._logger.info(f"v: {linear_velocity}, w: {angular_velocity}")
-                # self._logger.info(f"linear velocity: {self.turtle_msg.linear.x:.3f}, angular velocity: {self.turtle_msg.angular.z:.3f}")
-                # self._logger.info("==============================")
+                # Extract the optimal input velocity vector and calculate the rotated velocity vector 
+                u         = optimal_input[:2]         # u = [Vx, Vy]^T
+                u_rotated = ca.mtimes(R.T, u)           # u_perpend = [v, w*L]^T
 
-            # self.vel_pub.publish(self.vel_cmd_msg)
-            self.turtle_vel_pub.publish(self.turtle_msg)
+                # Extract linear and angular velocities from the rotated vector (THESE ARE QUATERION VALUES)
+                linear_velocity  = u_rotated[0]                             # v (linear velocity)
+                angular_velocity = u_rotated[1] / self.lookahead_distance   # w (angular velocity)
+                
+                clipped_linear_velocity = np.clip(linear_velocity, -self.max_linear_velocity, self.max_linear_velocity)
+                clipped_angular_velocity = np.clip(angular_velocity, -self.max_angular_velocity, self.max_angular_velocity)
+
+                self.turtle_msg.linear.x = clipped_linear_velocity[0][0]
+                self.turtle_msg.angular.z = clipped_angular_velocity[0][0]
+
+                if self.agent_id == 1:
+                    # self._logger.info("==============================")
+                    self._logger.info(f"Current time: {self.current_time}")
+                    # self._logger.info(f"Theta controller: {theta_val}")  
+                    # self._logger.info(f"Vx: {optimal_input[0]}, Vy: {optimal_input[1]}")
+                    # self._logger.info(f"v: {linear_velocity}, w: {angular_velocity}")
+                    # self._logger.info(f"linear velocity: {self.turtle_msg.linear.x:.3f}, angular velocity: {self.turtle_msg.angular.z:.3f}")
+                    # self._logger.info("==============================")
+
+                self.turtle_vel_pub.publish(self.turtle_msg)
+
+            # if self.agent_id == 7:
+            #     self.rosie_vel_pub.publish(self.turtle_msg)
+            # else:
+            #     self.turtle_vel_pub.publish(self.turtle_msg)
 
             # reset values for the next iteration
             self._gamma_tilde = {}

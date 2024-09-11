@@ -13,5 +13,5 @@ connection_4:
 connection_5:
   agents: [1, 6]
 
-# connection_6:
-#   agents: [1, 7]
+connection_6:
+  agents: [1, 7]
