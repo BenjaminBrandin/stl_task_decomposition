@@ -2,6 +2,8 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.time import Time
+import matplotlib.pyplot as plt
+import argparse
 import tf2_ros
 import time
 from functools import partial
@@ -62,9 +64,10 @@ class Controller(Node):
         # parameters declaration from launch file
         self.declare_parameter('robot_name', rclpy.Parameter.Type.STRING)
         self.declare_parameter('num_robots', rclpy.Parameter.Type.INTEGER)
-        
+
         # Agent Information # check if this can be above the optimization problem
         self.agents : dict[int, Agent]  = {} # position of all the agents in the system including self agent
+        self.agent_positions : dict[int, np.ndarray] = {} # position of all the agents in the system including self agent
         self.total_agents               = self.get_parameter('num_robots').get_parameter_value().integer_value
         self.agent_name                 = self.get_parameter('robot_name').get_parameter_value().string_value
         self.agent_id                   = int(self.agent_name[-1])
@@ -867,7 +870,16 @@ class Controller(Node):
 
         """
         state = np.array([msg.pose.position.x, msg.pose.position.y])
-        self.agents[agent_id] = Agent(id=agent_id, initial_state=state)
+        self.agents[agent_id] = Agent(id=agent_id, state=state)
+
+        # Store position in agent's position history
+        if agent_id not in self.agent_positions:
+            self.agent_positions[agent_id] = []  # Initialize position history for this agent
+        
+        # Append current position to position history
+        self.agent_positions[agent_id].append([msg.pose.position.x, msg.pose.position.y])
+        
+
 
 
     def leaf_nodes_callback(self, msg):
@@ -1055,10 +1067,14 @@ class Controller(Node):
         self._wait_for_future = True
 
 
+    def save_positions_to_file(self):
+        """Method to save agent positions to a text file."""
+        if self.agent_id == 1:
 
-        
-
-    
+            for agent_id, positions in self.agent_positions.items():
+                with open(f'agent_{agent_id}_positions.txt', 'w') as file:
+                    for position in positions:
+                        file.write(f"{position[0]} {position[1]}\n")
 
 def main(args=None):
     rclpy.init(args=args)
@@ -1070,10 +1086,12 @@ def main(args=None):
     try:
         executor.spin()
     except KeyboardInterrupt:
-        pass
-
-    node.destroy_node()
-    rclpy.shutdown()
+        node.save_positions_to_file()  # Only plot if this instance is the designated plotting agent
+    finally:
+        # Clean up: destroy node and shut down rclpy
+        node.destroy_node()
+        rclpy.shutdown()
+     
 
 if __name__ == '__main__':
     main()

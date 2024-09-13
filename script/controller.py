@@ -33,7 +33,7 @@ class Controller(Node):
 
         # Initialize the node
         super().__init__('controller')
-        self.reset_point       : list[int] = [80, 170]          # might be a list in the future if we want more than two sets of tasks
+        self.reset_point       : list[int] = [100, 170]          # might be a list in the future if we want more than two sets of tasks
         self.ready_controllers : set[int]  = set()       # Used as a flag to make sure the agents are synked before starting the next set of tasks
         self.current_task_set  : int       = 0
         
@@ -79,7 +79,8 @@ class Controller(Node):
         self._ready_to_run_service_loop : bool = False 
         self._ready_to_run_control_loop : bool = False 
         self._wait_for_future           : bool = False
-        self.agents : dict[int, Agent]  = {} # position of all the agents in the system including self agent 
+        self.agent_positions            : dict[int, list[int,int]] = {} # used to store the position history of the agents
+        self.agents                     : dict[int, Agent]  = {}        # position of all the agents in the system including self agent 
         for id in range(1, self.total_agents + 1):
             self.agents[id] = Agent(id=id, state=np.array([0.0, 0.0]), theta=0.0)
 
@@ -952,10 +953,19 @@ class Controller(Node):
         self.agents[agent_id].state = np.array([msg.pose.position.x, msg.pose.position.y])
         self.agents[agent_id].theta = yaw
         
+
+        # Store position in agent's position history
+        if agent_id not in self.agent_positions:
+            self.agent_positions[agent_id] = []  # Initialize position history for this agent
+        
+        # Append current position to position history
+        self.agent_positions[agent_id].append([msg.pose.position.x, msg.pose.position.y])
+
         # Signals the manager node that it is ready to recive the tasks 
         ready = Int32()
         ready.data = agent_id
         self.ready_pub.publish(ready)
+
 
 
     def leaf_nodes_callback(self, msg):
@@ -1128,8 +1138,14 @@ class Controller(Node):
         self._wait_for_future = True
 
 
+    def save_positions_to_file(self):
+        """Method to save agent positions to a text file."""
+        if self.agent_id == 1:
 
-        
+            for agent_id, positions in self.agent_positions.items():
+                with open(f'agent_{agent_id}_positions.txt', 'w') as file:
+                    for position in positions:
+                        file.write(f"{position[0]} {position[1]}\n")    
 
     
 
@@ -1143,10 +1159,12 @@ def main(args=None):
     try:
         executor.spin()
     except KeyboardInterrupt:
-        pass
+        node.save_positions_to_file()
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
 
-    node.destroy_node()
-    rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
