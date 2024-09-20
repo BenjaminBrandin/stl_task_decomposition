@@ -33,7 +33,7 @@ class Controller(Node):
 
         # Initialize the node
         super().__init__('controller')
-        self.reset_point       : list[int] = [100, 170]          # might be a list in the future if we want more than two sets of tasks
+        self.reset_point       : list[int] = [80, 170]          # might be a list in the future if we want more than two sets of tasks
         self.ready_controllers : set[int]  = set()       # Used as a flag to make sure the agents are synked before starting the next set of tasks
         self.current_task_set  : int       = 0
         
@@ -126,14 +126,12 @@ class Controller(Node):
         # Setup publishers
         # self.vel_pub          = self.create_publisher(Twist, f"/agent{self.agent_id}/cmd_vel", 100)
         self.turtle_vel_pub   = self.create_publisher(Twist, f"/turtlebot{self.agent_id}/cmd_vel", 10)
-        self.rosie_vel_pub    = self.create_publisher(Twist, f"/rosie0/cmd_vel", 10) 
+        self.rosie_vel_pub    = self.create_publisher(Twist, f"/rosie1/cmd_vel", 10) 
         self.ready_pub        = self.create_publisher(Int32, "/controller_ready", 10)
         self.agent_pose_pub   = self.create_publisher(PoseStamped, f"/agent{self.agent_id}/agent_pose", 10)
         self.cleared_data_pub = self.create_publisher(Int32, "/cleared_data", 10)
 
         # Setup subscribers
-        # self.create_subscription(PoseStamped, f"/qualisys/turtlebot{self.agent_id}/pose", self.qualisys_pose_callback, 10)
-
         self.create_subscription(LeafNodes, "/leaf_nodes", self.leaf_nodes_callback, 10)
         self.create_subscription(Int32, "/numOfTasks", self.numOfTasks_callback, 10)
         self.create_subscription(TaskMsg, "/tasks", self.task_callback, 100)
@@ -651,8 +649,8 @@ class Controller(Node):
                 # Publish the velocity command
                 linear_velocity = optimal_input[:2]
                 clipped_linear_velocity = np.clip(linear_velocity, -self.max_linear_velocity, self.max_linear_velocity)
-                self.vel_cmd_msg.linear.x = clipped_linear_velocity[0][0]
-                self.vel_cmd_msg.linear.y = clipped_linear_velocity[1][0]
+                self.vel_cmd_msg.linear.x = -clipped_linear_velocity[0][0]
+                self.vel_cmd_msg.linear.y = -clipped_linear_velocity[1][0]
             
                 self.rosie_vel_pub.publish(self.vel_cmd_msg)
             else:

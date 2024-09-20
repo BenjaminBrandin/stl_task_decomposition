@@ -7,11 +7,11 @@ connection_2:
 connection_3:
   agents: [2, 4]
 
-# connection_4:
-#   agents: [3, 5]
+connection_4:
+  agents: [3, 5]
 
-# connection_5:
-#   agents: [1, 6]
+connection_5:
+  agents: [1, 6]
 
-# connection_6:
-#   agents: [1, 7]
+connection_6:
+  agents: [1, 7]
