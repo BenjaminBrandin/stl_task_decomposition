@@ -75,7 +75,7 @@ TASK_8:
 TASK_9:
   EDGE: [1, 2]
   TYPE: "formation_predicate"
-  CENTER: [0.5, 1.3]
+  CENTER: [1.0, 1.3]
   EPSILON: 1.5
   TEMP_OP: "AlwaysOperator"
   INTERVAL: [160, 170]
@@ -87,7 +87,7 @@ TASK_10:
   CENTER: [-1.0, 1.3]
   EPSILON: 1.5
   TEMP_OP: "AlwaysOperator"
-  INTERVAL: [150, 170]
+  INTERVAL: [160, 170]
   INVOLVED_AGENTS: [1, 3]
   
 TASK_11:
@@ -251,53 +251,28 @@ TASK_27:
 
 
 # # ---- Each phase separated ---------
+  
 
+  
 # TASK_1:
-#   EDGE: [1, 2]
-#   TYPE: "epsilon_position_closeness_predicate"
-#   CENTER: [0.0, 0.0]
-#   EPSILON: 2.0
-#   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [40, 80]
-#   INVOLVED_AGENTS: [1, 2]
-  
-# TASK_2:
-#   EDGE: [2, 4]
-#   TYPE: "epsilon_position_closeness_predicate"
-#   CENTER: [0.0, 0.0]
-#   EPSILON: 2.0
-#   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [40, 80]
-#   INVOLVED_AGENTS: [2, 4]
-  
-# TASK_3:
 #   EDGE: [1, 3]
-#   TYPE: "formation_predicate"
-#   CENTER: [-1.0, 1.0]
-#   EPSILON: 1.5
+#   TYPE: "epsilon_position_closeness_predicate"
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 2.0
 #   TEMP_OP: "AlwaysOperator"
 #   INTERVAL: [40, 80]
 #   INVOLVED_AGENTS: [1, 3]
   
-# TASK_4:
+# TASK_2:
 #   EDGE: [3, 5]
 #   TYPE: "formation_predicate"
-#   CENTER: [-1.0, 3.0]
+#   CENTER: [-1.0, 2.0]
 #   EPSILON: 1.0
 #   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [70, 80]
+#   INTERVAL: [80, 80]
 #   INVOLVED_AGENTS: [3, 5]
 
-# TASK_5:
-#   EDGE: [4, 4]
-#   TYPE: "go_to_goal_predicate_2d"
-#   CENTER: [1.5, -3.0]
-#   EPSILON: 1.0
-#   TEMP_OP: "EventuallyOperator"
-#   INTERVAL: [50, 80]
-#   INVOLVED_AGENTS: [4]
-
-# TASK_6:
+# TASK_3:
 #   EDGE: [2, 6]
 #   TYPE: "epsilon_position_closeness_predicate"
 #   CENTER: [0.0, 0.0]
@@ -306,27 +281,50 @@ TASK_27:
 #   INTERVAL: [60, 80]
 #   INVOLVED_AGENTS: [2, 6]
 
-# TASK_7:
-#   EDGE: [1, 6]
-#   TYPE: "epsilon_position_closeness_predicate"
-#   CENTER: [0.0, 0.0]
-#   EPSILON: 2.0
-#   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [60, 80]
-#   INVOLVED_AGENTS: [1, 6]
-
-# TASK_8:
+# TASK_4:
 #   EDGE: [1, 7]
 #   TYPE: "epsilon_position_closeness_predicate"
 #   CENTER: [0.0, 0.0]
-#   EPSILON: 2.0
+#   EPSILON: 3.0
 #   TEMP_OP: "AlwaysOperator"
 #   INTERVAL: [60, 80]
 #   INVOLVED_AGENTS: [1, 7]
 
+# TASK_5:
+#   EDGE: [5, 4]
+#   TYPE: "formation_predicate"
+#   CENTER: [1.8, 1.5]
+#   EPSILON: 3.0
+#   TEMP_OP: "AlwaysOperator"
+#   INTERVAL: [80, 80]
+#   INVOLVED_AGENTS: [5, 4]
 
+# TASK_6:
+#   EDGE: [1, 6]
+#   TYPE: "epsilon_position_closeness_predicate"
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 3.0
+#   TEMP_OP: "AlwaysOperator"
+#   INTERVAL: [60, 80]
+#   INVOLVED_AGENTS: [1, 6]
 
+# TASK_7:
+#   EDGE: [7, 7]
+#   TYPE: "go_to_goal_predicate_2d"
+#   CENTER: [0.0, 1.0]
+#   EPSILON: 1.0
+#   TEMP_OP: "AlwaysOperator"
+#   INTERVAL: [50, 80]
+#   INVOLVED_AGENTS: [7]
 
+# TASK_8:
+#   EDGE: [2, 4]
+#   TYPE: "epsilon_position_closeness_predicate"
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 6.0
+#   TEMP_OP: "AlwaysOperator"
+#   INTERVAL: [40, 80]
+#   INVOLVED_AGENTS: [2, 4]
 
 
 # # ----- Phase 2 ----- + 80
@@ -334,35 +332,44 @@ TASK_27:
 # TASK_1:
 #   EDGE: [1, 1]
 #   TYPE: "go_to_goal_predicate_2d"
-#   CENTER: [0.0, 0.0]
+#   CENTER: [0.0, -1.0]
 #   EPSILON: 1.0
 #   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [80, 90]
+#   INTERVAL: [40, 90]
 #   INVOLVED_AGENTS: [1]
   
 # TASK_2:
-#   EDGE: [1, 2]
+#   EDGE: [1, 4]
 #   TYPE: "formation_predicate"
-#   CENTER: [0.5, 1.3]
+#   CENTER: [1.5, 2.0]
 #   EPSILON: 1.5
 #   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [80, 90]
-#   INVOLVED_AGENTS: [1, 2]
+#   INTERVAL: [90, 90]
+#   INVOLVED_AGENTS: [1, 4]
   
+# # TASK_3:
+# #   EDGE: [1, 5]
+# #   TYPE: "formation_predicate"
+# #   CENTER: [-1.5, 2.0]
+# #   EPSILON: 1.5
+# #   TEMP_OP: "AlwaysOperator"
+# #   INTERVAL: [90, 90]
+# #   INVOLVED_AGENTS: [1, 5]
+
 # TASK_3:
 #   EDGE: [1, 3]
 #   TYPE: "formation_predicate"
 #   CENTER: [-1.0, 1.3]
-#   EPSILON: 1.5
+#   EPSILON: 1.0
 #   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [70, 90]
+#   INTERVAL: [80, 90]
 #   INVOLVED_AGENTS: [1, 3]
   
 # TASK_4:
 #   EDGE: [2, 4]
 #   TYPE: "epsilon_position_closeness_predicate"
 #   CENTER: [0.0, 0.0]
-#   EPSILON: 3.0
+#   EPSILON: 4.0
 #   TEMP_OP: "AlwaysOperator"
 #   INTERVAL: [60, 90]
 #   INVOLVED_AGENTS: [2, 4]
@@ -376,16 +383,16 @@ TASK_27:
 #   INTERVAL: [80, 90]
 #   INVOLVED_AGENTS: [3, 5]
   
+# # TASK_6:
+# #   EDGE: [4, 4]
+# #   TYPE: "go_to_goal_predicate_2d"
+# #   CENTER: [-0.3, 1.4]
+# #   EPSILON: 1.0
+# #   TEMP_OP: "AlwaysOperator"
+# #   INTERVAL: [90, 90]
+# #   INVOLVED_AGENTS: [4]
+
 # TASK_6:
-#   EDGE: [4, 4]
-#   TYPE: "go_to_goal_predicate_2d"
-#   CENTER: [1.0, 0.8]
-#   EPSILON: 1.0
-#   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [90, 90]
-#   INVOLVED_AGENTS: [4]
-  
-# TASK_7:
 #   EDGE: [5, 5]
 #   TYPE: "go_to_goal_predicate_2d"
 #   CENTER: [0.0, 1.5]
@@ -394,25 +401,16 @@ TASK_27:
 #   INTERVAL: [70, 90]
 #   INVOLVED_AGENTS: [5]
 
-# TASK_8:
-#   EDGE: [1, 6]
-#   TYPE: "formation_predicate"
-#   CENTER: [0.8, 0.0]
-#   EPSILON: 1.0
-#   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [90, 90]
-#   INVOLVED_AGENTS: [1, 6]
-
-# TASK_9:
+# TASK_7:
 #   EDGE: [7, 7]
 #   TYPE: "go_to_goal_predicate_2d"
 #   CENTER: [0.0, 1.0]
 #   EPSILON: 1.0
-#   TEMP_OP: "AlwaysOperator"
+#   TEMP_OP: "EventuallyOperator"
 #   INTERVAL: [30, 90]
 #   INVOLVED_AGENTS: [7]
 
-# TASK_10:
+# TASK_8:
 #   EDGE: [1, 7]
 #   TYPE: "epsilon_position_closeness_predicate"
 #   CENTER: [0.0, 0.0]
@@ -421,6 +419,32 @@ TASK_27:
 #   INTERVAL: [80, 90]
 #   INVOLVED_AGENTS: [1, 7]
 
+# TASK_9:
+#   EDGE: [6, 6]
+#   TYPE: "go_to_goal_predicate_2d"
+#   CENTER: [1.0, -1.0]
+#   EPSILON: 1.0
+#   TEMP_OP: "EventuallyOperator"
+#   INTERVAL: [70, 90]
+#   INVOLVED_AGENTS: [6]
+
+# TASK_10:
+#   EDGE: [1, 6]
+#   TYPE: "epsilon_position_closeness_predicate"
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 3.0
+#   TEMP_OP: "AlwaysOperator"
+#   INTERVAL: [80, 90]
+#   INVOLVED_AGENTS: [1, 6]
+
+# TASK_11:
+#   EDGE: [3, 3]
+#   TYPE: "go_to_goal_predicate_2d"
+#   CENTER: [-1.0, -1.0]
+#   EPSILON: 1.0
+#   TEMP_OP: "AlwaysOperator"
+#   INTERVAL: [90, 90]
+#   INVOLVED_AGENTS: [3]
 
 
 
@@ -428,21 +452,21 @@ TASK_27:
 # # ----- Phase 3 -----  + 80 + 90
 
 # TASK_1:
-#   EDGE: [1, 2]
-#   TYPE: "formation_predicate"
-#   CENTER: [1.1, 1.8]
-#   EPSILON: 0.5
+#   EDGE: [1, 1]
+#   TYPE: "go_to_goal_predicate_2d"
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 1.0
 #   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [90, 100]
-#   INVOLVED_AGENTS: [1, 2]
+#   INTERVAL: [70, 100]
+#   INVOLVED_AGENTS: [1]
 
 # TASK_2:
 #   EDGE: [1, 3]
 #   TYPE: "formation_predicate"
 #   CENTER: [-1.0, 1.5]
-#   EPSILON: 1.0
+#   EPSILON: 1.5
 #   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [90, 100]
+#   INTERVAL: [100, 100]
 #   INVOLVED_AGENTS: [1, 3]
 
 # TASK_3:
@@ -459,7 +483,7 @@ TASK_27:
 #   TYPE: "go_to_goal_predicate_2d"
 #   CENTER: [-0.4, 1.4]
 #   EPSILON: 0.5
-#   TEMP_OP: "AlwaysOperator"
+#   TEMP_OP: "EventuallyOperator"
 #   INTERVAL: [70, 100]
 #   INVOLVED_AGENTS: [4]
 
@@ -467,19 +491,20 @@ TASK_27:
 #   EDGE: [1, 6]
 #   TYPE: "formation_predicate"
 #   CENTER: [1.1, 0.8]
-#   EPSILON: 0.5
+#   EPSILON: 1.0
 #   TEMP_OP: "AlwaysOperator"
 #   INTERVAL: [90, 100]
 #   INVOLVED_AGENTS: [1, 6]
 
 # TASK_6:
-#   EDGE: [1, 1]
-#   TYPE: "go_to_goal_predicate_2d"
-#   CENTER: [0.0, 0.0]
+#   EDGE: [1, 2]
+#   TYPE: "formation_predicate"
+#   CENTER: [1.1, 1.8]
 #   EPSILON: 1.0
 #   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [30, 100]
-#   INVOLVED_AGENTS: [1]
+#   INTERVAL: [90, 100]
+#   INVOLVED_AGENTS: [1, 2]
+
   
 # TASK_7:
 #   EDGE: [2, 4]
@@ -494,21 +519,21 @@ TASK_27:
 #   EDGE: [3, 5]
 #   TYPE: "epsilon_position_closeness_predicate"
 #   CENTER: [0.5, 0.7]
-#   EPSILON: 3.0
+#   EPSILON: 5.0
 #   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [60, 100]
+#   INTERVAL: [90, 100]
 #   INVOLVED_AGENTS: [3, 5]
 
-# TASK_6:
+# TASK_9:
 #   EDGE: [7, 7]
 #   TYPE: "go_to_goal_predicate_2d"
 #   CENTER: [0.0, 0.0]
 #   EPSILON: 1.0
-#   TEMP_OP: "AlwaysOperator"
+#   TEMP_OP: "EventuallyOperator"
 #   INTERVAL: [30, 100]
 #   INVOLVED_AGENTS: [7]
 
-# TASK_7:
+# TASK_10:
 #   EDGE: [1, 7]
 #   TYPE: "epsilon_position_closeness_predicate"
 #   CENTER: [0.0, 0.0]
@@ -516,6 +541,25 @@ TASK_27:
 #   TEMP_OP: "AlwaysOperator"
 #   INTERVAL: [60, 100]
 #   INVOLVED_AGENTS: [1, 7]
+
+
+# TASK_11:
+#   EDGE: [1, 4]
+#   TYPE: "formation_predicate"
+#   CENTER: [0.5, 2.0]
+#   EPSILON: 3.0
+#   TEMP_OP: "AlwaysOperator"
+#   INTERVAL: [100, 100]
+#   INVOLVED_AGENTS: [1, 4]
+
+# TASK_12:
+#   EDGE: [5, 7]
+#   TYPE: "epsilon_position_closeness_predicate"
+#   CENTER: [-0.5, 2.0]
+#   EPSILON: 6.0
+#   TEMP_OP: "AlwaysOperator"
+#   INTERVAL: [100, 100]
+#   INVOLVED_AGENTS: [5, 7]
 
 
 

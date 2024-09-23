@@ -4,6 +4,8 @@ from rclpy.node import Node
 from rclpy.time import Time
 import tf2_ros
 import math
+import os
+from datetime import datetime
 from functools import partial
 import numpy as np
 import casadi as ca
@@ -126,7 +128,7 @@ class Controller(Node):
         # Setup publishers
         # self.vel_pub          = self.create_publisher(Twist, f"/agent{self.agent_id}/cmd_vel", 100)
         self.turtle_vel_pub   = self.create_publisher(Twist, f"/turtlebot{self.agent_id}/cmd_vel", 10)
-        self.rosie_vel_pub    = self.create_publisher(Twist, f"/rosie1/cmd_vel", 10) 
+        self.rosie_vel_pub    = self.create_publisher(Twist, f"/rosie0/cmd_vel", 10) 
         self.ready_pub        = self.create_publisher(Int32, "/controller_ready", 10)
         self.agent_pose_pub   = self.create_publisher(PoseStamped, f"/agent{self.agent_id}/agent_pose", 10)
         self.cleared_data_pub = self.create_publisher(Int32, "/cleared_data", 10)
@@ -649,8 +651,8 @@ class Controller(Node):
                 # Publish the velocity command
                 linear_velocity = optimal_input[:2]
                 clipped_linear_velocity = np.clip(linear_velocity, -self.max_linear_velocity, self.max_linear_velocity)
-                self.vel_cmd_msg.linear.x = -clipped_linear_velocity[0][0]
-                self.vel_cmd_msg.linear.y = -clipped_linear_velocity[1][0]
+                self.vel_cmd_msg.linear.x = clipped_linear_velocity[0][0]
+                self.vel_cmd_msg.linear.y = clipped_linear_velocity[1][0]
             
                 self.rosie_vel_pub.publish(self.vel_cmd_msg)
             else:
@@ -1144,6 +1146,20 @@ class Controller(Node):
                 with open(f'agent_{agent_id}_positions.txt', 'w') as file:
                     for position in positions:
                         file.write(f"{position[0]} {position[1]}\n")    
+
+    # def save_positions_to_file(self):
+    #     """Method to save agent positions to a text file, creating a new folder each time."""
+    #     if self.agent_id == 1:
+    #         # Create a new folder with a timestamp to ensure uniqueness
+    #         folder_name = datetime.now().strftime("positions_%Y%m%d_%H%M%S")
+    #         os.makedirs(folder_name, exist_ok=True)
+
+    #         # Loop through each agent's positions and save them in the new folder
+    #         for agent_id, positions in self.agent_positions.items():
+    #             file_path = os.path.join(folder_name, f'agent_{agent_id}_positions.txt')
+    #             with open(file_path, 'w') as file:
+    #                 for position in positions:
+    #                     file.write(f"{position[0]} {position[1]}\n")
 
     
 
