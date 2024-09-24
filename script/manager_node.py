@@ -148,7 +148,7 @@ class Manager(Node):
         for i, task_graph in enumerate(self.task_graphs):
             computeNewTaskGraph(task_graph, self.comm_graph, phase_edges[i], start_position=start_positions)
 
-        # self.print_tasks()    # Uncomment to print the tasks
+        self.print_tasks()    # Uncomment to print the tasks
         # self.plot_graph()     # Uncomment to plot the graphs
 
 
