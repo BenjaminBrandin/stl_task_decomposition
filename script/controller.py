@@ -35,7 +35,7 @@ class Controller(Node):
 
         # Initialize the node
         super().__init__('controller')
-        self.reset_point       : list[int] = [80, 170]          # might be a list in the future if we want more than two sets of tasks
+        self.reset_point       : list[int] = [90, 170]          # might be a list in the future if we want more than two sets of tasks
         self.ready_controllers : set[int]  = set()       # Used as a flag to make sure the agents are synked before starting the next set of tasks
         self.current_task_set  : int       = 0
         
