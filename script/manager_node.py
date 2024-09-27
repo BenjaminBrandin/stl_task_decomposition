@@ -48,7 +48,7 @@ class Manager(Node):
 
         self.agents: dict[int, Agent] = {}
         self.total_tasks: int = 0
-        self.phase_change: list[int] = [90, 170]
+        self.phase_change: list[int] = [80, 170]
         communication_radius: float = 2.0
         self.fixed_communication_flag: bool = True
         self.bool_msg :bool = False

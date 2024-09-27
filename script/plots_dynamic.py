@@ -23,11 +23,6 @@ def extract_task_info(path) -> dict:
                 tasks = yaml.safe_load(file)
     return tasks
 
-def is_inside_barrier(agent_pos, barrier_center, epsilon):
-    """Check if an agent is inside a circular barrier."""
-    distance = np.linalg.norm(np.array(agent_pos) - np.array(barrier_center))
-    return distance <= epsilon
-
 def is_barrier_activated(interval, phase):
     """Check if the barrier is activated based on the current frame."""
     if phase == 1:
@@ -51,8 +46,10 @@ def animate_agent_positions(agent_positions, tasks):
     """Animate the positions of each agent."""
     fig, ax = plt.subplots(figsize=(10, 10))
     
-    # Start the animation in phase 1a
+    # Start the animation in phase 1
     phase = 1
+
+    decomp_tasks = ["TASK_1", "TASK_6", "TASK_9", "TASK_12", "TASK_15"]
 
     # Define the colors for each agent
     agent_colors = {1: 'blue', 2: 'orange', 3: 'green', 4: 'red', 5: 'purple', 6: 'brown', 7: 'magenta'}
@@ -61,11 +58,25 @@ def animate_agent_positions(agent_positions, tasks):
     lines = {}
     arrows = {}
     barriers = {}
+    agents = {}
+    agent_texts = {}
+    decomp_texts = {}
     
     for agent_id, positions in agent_positions.items():
         # Agent movement line
         line, = ax.plot([], [], marker='o', markersize=1, color=agent_colors[agent_id], label=f'Agent {agent_id}')
         lines[agent_id] = line
+
+
+        # Create circle for the agent and add it to the plot
+        agent_circle = plt.Circle((0, 0), 0.05, fill=True, color=agent_colors[agent_id], alpha=1.0)
+        ax.add_patch(agent_circle)
+        agents[agent_id] = agent_circle
+
+        # Create text for the agent and add it to the plot
+        text = ax.text(0, 0, f'Agent {agent_id}', ha='center', va='center', color=agent_colors[agent_id])
+        agent_texts[agent_id] = text
+
 
         # Create barriers based on tasks
         for task_name, task_info in tasks.items():
@@ -79,13 +90,18 @@ def animate_agent_positions(agent_positions, tasks):
                 # Arrow to barrier
                 arrows[f"{task_name}_{agent_id}"] = ax.annotate('', xy=(0, 0), xytext=(0, 0), arrowprops=dict(facecolor='black', shrink=0.05, width=0.01, headwidth=5))
 
-                # Barrier
-                # barrier = plt.Circle((center[0], center[1]), epsilon, fill=True, color=agent_colors[agent_id], alpha=0.3)
-                barrier = plt.Circle((center[0], center[1]), epsilon, fill=False, edgecolor=agent_colors[agent_id])
+                if task_name in decomp_tasks:
+                    barrier = plt.Circle((center[0], center[1]), epsilon, fill=False, linestyle=':', linewidth=1.5)
+                    # Create text for the barrier
+                    decomp_text = ax.text(center[0], center[1] + 0.1, f'collab_task_{involved_agents[0]}-{involved_agents[1]}', ha='center', va='bottom')
+                    decomp_texts[f"{task_name}_{agent_id}"] = decomp_text
+                else:
+                    barrier = plt.Circle((center[0], center[1]), epsilon, fill=False, edgecolor=agent_colors[agent_id])
+                
                 ax.add_patch(barrier)
                 barriers[f"{task_name}_{agent_id}"] = barrier
 
-                    
+     
     # Set the plot limits (adjust these limits based on your data)
     ax.set_xlim(-3, 3)
     ax.set_ylim(-4, 2)
@@ -102,10 +118,10 @@ def animate_agent_positions(agent_positions, tasks):
         """Initialize the plot."""
         for line in lines.values():
             line.set_data([], [])
-        return list(lines.values()) + list(barriers.values()) + list(arrows.values())
+        return list(lines.values()) + list(barriers.values()) + list(arrows.values()) + list(agents.values()) + list(agent_texts.values()) + list(decomp_texts.values())
 
     def update(frame):
-        
+        # frame = frame + 800
         # Update the phase
         phase = check_phase(frame)
         
@@ -115,6 +131,12 @@ def animate_agent_positions(agent_positions, tasks):
                 x_coords, y_coords = zip(*positions[:frame + 1])  # Slice up to the current frame
                 lines[agent_id].set_data(x_coords, y_coords)
             
+            # Update the agent's circle position
+                current_pos = agent_positions[agent_id][frame]
+                agents[agent_id].set_center((current_pos[0], current_pos[1]))
+
+            # Update the text position to follow the agent's circle
+                agent_texts[agent_id].set_position((current_pos[0], current_pos[1]+0.1))
 
 
             # Update barriers based on the task type
@@ -125,54 +147,67 @@ def animate_agent_positions(agent_positions, tasks):
                 task_type = task_info['TYPE']
                 interval = task_info['INTERVAL']
 
+
                 if agent_id in involved_agents:
 
                     if task_type == "formation_predicate":
                         # Move the rectangle relative to the neighbor
 
                         if agent_id == involved_agents[0]:
-                            current_pos = agent_positions[involved_agents[0]][frame]
-                            current_neighbor_pos = agent_positions[involved_agents[1]][frame]
+                            barriers[f"{task_name}_{agent_id}"].set_visible(False)
+                            arrows[f"{task_name}_{agent_id}"].set_visible(False)
+                            if task_name in decomp_tasks:
+                                decomp_texts[f"{task_name}_{agent_id}"].set_visible(False)
+                            
+                            # current_pos = agent_positions[involved_agents[0]][frame]
+                            # current_neighbor_pos = agent_positions[involved_agents[1]][frame]
 
-                            # Update the barrier
-                            if is_barrier_activated(interval, phase):
-                                barriers[f"{task_name}_{agent_id}"].set_center((current_neighbor_pos[0] - center[0], current_neighbor_pos[1] - center[1]))
-                                barriers[f"{task_name}_{agent_id}"].set_visible(True) 
-
-                                # Check if the agent is inside the barrier and update the arrow
-                                if not is_inside_barrier(current_pos, (current_neighbor_pos[0] - center[0], current_neighbor_pos[1] - center[1]), epsilon):
-                                    # Update the arrow only if the agent is outside the barrier
-                                    arrows[f"{task_name}_{agent_id}"].set_position((current_pos[0], current_pos[1]))
-                                    arrows[f"{task_name}_{agent_id}"].xy = (current_neighbor_pos[0] - center[0], current_neighbor_pos[1] - center[1])
-                                    arrows[f"{task_name}_{agent_id}"].set_visible(True)
-                                else:
-                                    arrows[f"{task_name}_{agent_id}"].set_visible(False)
-                            else:
-                                barriers[f"{task_name}_{agent_id}"].set_visible(False)
-                                arrows[f"{task_name}_{agent_id}"].set_visible(False)
+                            # # Update the barrier
+                            # if is_barrier_activated(interval, phase):
+                            #     barriers[f"{task_name}_{agent_id}"].set_center((current_neighbor_pos[0] - center[0], current_neighbor_pos[1] - center[1]))
+                            #     barriers[f"{task_name}_{agent_id}"].set_visible(True) 
+                                
+                            #     # Update the arrow
+                            #     arrows[f"{task_name}_{agent_id}"].set_position((current_pos[0], current_pos[1]))
+                            #     arrows[f"{task_name}_{agent_id}"].xy = (current_neighbor_pos[0] - center[0], current_neighbor_pos[1] - center[1])
+                            #     arrows[f"{task_name}_{agent_id}"].set_visible(True)
+                                
+                            # else:
+                            #     barriers[f"{task_name}_{agent_id}"].set_visible(False)
+                            #     arrows[f"{task_name}_{agent_id}"].set_visible(False)
+                            #     if task_name in decomp_tasks:
+                            #         decomp_texts[f"{task_name}_{agent_id}"].set_visible(False)
 
                             
 
                         else:
+                            # barriers[f"{task_name}_{agent_id}"].set_visible(False)
+                            # arrows[f"{task_name}_{agent_id}"].set_visible(False)
                             current_pos = agent_positions[involved_agents[1]][frame]
                             current_neighbor_pos = agent_positions[involved_agents[0]][frame]
 
                             # Update the barrier
                             if is_barrier_activated(interval, phase):
+                                
                                 barriers[f"{task_name}_{agent_id}"].set_center((current_neighbor_pos[0] + center[0], current_neighbor_pos[1] + center[1]))
                                 barriers[f"{task_name}_{agent_id}"].set_visible(True)
 
-                                # Check if the agent is inside the barrier and update the arrow
-                                if not is_inside_barrier(current_pos, (current_neighbor_pos[0] + center[0], current_neighbor_pos[1] + center[1]), epsilon):
-                                    # Update the arrow only if the agent is outside the barrier
-                                    arrows[f"{task_name}_{agent_id}"].set_position((current_pos[0], current_pos[1]))
-                                    arrows[f"{task_name}_{agent_id}"].xy = (current_neighbor_pos[0] + center[0], current_neighbor_pos[1] + center[1])
-                                    arrows[f"{task_name}_{agent_id}"].set_visible(True)
-                                else:
-                                    arrows[f"{task_name}_{agent_id}"].set_visible(False)
+                                # Update the arrow only if the agent is outside the barrier
+                                arrows[f"{task_name}_{agent_id}"].set_position((current_pos[0], current_pos[1]))
+                                arrows[f"{task_name}_{agent_id}"].xy = (current_neighbor_pos[0] + center[0], current_neighbor_pos[1] + center[1])
+                                arrows[f"{task_name}_{agent_id}"].set_visible(True)
+
+                                # Update the text position for dotted barriers only
+                                if task_name in decomp_tasks:
+                                    # Update the position of the decomp_text to follow the barrier
+                                    decomp_texts[f"{task_name}_{agent_id}"].set_position((current_neighbor_pos[0] + center[0], current_neighbor_pos[1] + center[1]+0.1))
+                                    decomp_texts[f"{task_name}_{agent_id}"].set_visible(True)
+
                             else:
                                 barriers[f"{task_name}_{agent_id}"].set_visible(False)
                                 arrows[f"{task_name}_{agent_id}"].set_visible(False)
+                                if task_name in decomp_tasks:
+                                    decomp_texts[f"{task_name}_{agent_id}"].set_visible(False)
 
 
 
@@ -192,17 +227,22 @@ def animate_agent_positions(agent_positions, tasks):
                             barriers[f"{task_name}_{agent_id}"].set_center((current_neighbor_pos[0], current_neighbor_pos[1]))
                             barriers[f"{task_name}_{agent_id}"].set_visible(True)
 
-                            # Check if the agent is inside the barrier and update the arrow
-                            if not is_inside_barrier(current_pos, (current_neighbor_pos[0], current_neighbor_pos[1]), epsilon):
-                                # Update the arrow only if the agent is outside the barrier
-                                arrows[f"{task_name}_{agent_id}"].set_position((current_pos[0], current_pos[1]))
-                                arrows[f"{task_name}_{agent_id}"].xy = (current_neighbor_pos[0], current_neighbor_pos[1])
-                                arrows[f"{task_name}_{agent_id}"].set_visible(True)
-                            else:
-                                arrows[f"{task_name}_{agent_id}"].set_visible(False)   
+                            # Update the arrow
+                            arrows[f"{task_name}_{agent_id}"].set_position((current_pos[0], current_pos[1]))
+                            arrows[f"{task_name}_{agent_id}"].xy = (current_neighbor_pos[0], current_neighbor_pos[1])
+                            arrows[f"{task_name}_{agent_id}"].set_visible(True)
+
+                            # Update the text position for dotted barriers only
+                            if task_name in decomp_tasks:
+                                # Update the position of the decomp_text to follow the barrier
+                                decomp_texts[f"{task_name}_{agent_id}"].set_position((current_pos[0], current_pos[1]+0.1))
+                                decomp_texts[f"{task_name}_{agent_id}"].set_visible(True)
+
                         else:
                             barriers[f"{task_name}_{agent_id}"].set_visible(False)
                             arrows[f"{task_name}_{agent_id}"].set_visible(False)
+                            if task_name in decomp_tasks:
+                                decomp_texts[f"{task_name}_{agent_id}"].set_visible(False)
 
 
                     elif task_type == "go_to_goal_predicate_2d":
@@ -213,29 +253,29 @@ def animate_agent_positions(agent_positions, tasks):
                             barriers[f"{task_name}_{agent_id}"].set_center((center[0], center[1]))
                             barriers[f"{task_name}_{agent_id}"].set_visible(True)
 
-                            # Check if the agent is inside the barrier and update the arrow
-                            if not is_inside_barrier(current_pos, center, epsilon):
-                                # Update the arrow only if the agent is outside the barrier
-                                arrows[f"{task_name}_{agent_id}"].set_position((current_pos[0], current_pos[1]))
-                                arrows[f"{task_name}_{agent_id}"].xy = (center[0], center[1])
-                                arrows[f"{task_name}_{agent_id}"].set_visible(True)
-                            else:
-                                arrows[f"{task_name}_{agent_id}"].set_visible(False)
+                            # Update the arrow only if the agent is outside the barrier
+                            arrows[f"{task_name}_{agent_id}"].set_position((current_pos[0], current_pos[1]))
+                            arrows[f"{task_name}_{agent_id}"].xy = (center[0], center[1])
+                            arrows[f"{task_name}_{agent_id}"].set_visible(True)
+                            
                         else:
                             barriers[f"{task_name}_{agent_id}"].set_visible(False)
                             arrows[f"{task_name}_{agent_id}"].set_visible(False)
+                            if task_name in decomp_tasks:
+                                decomp_texts[f"{task_name}_{agent_id}"].set_visible(False)
+
+                    
 
 
 
 
-
-        return list(lines.values()) + list(barriers.values()) + list(arrows.values())
+        return list(lines.values()) + list(barriers.values()) + list(arrows.values()) + list(agents.values()) + list(agent_texts.values()) + list(decomp_texts.values())
 
     # Create the animation
     ani = FuncAnimation(fig, update, frames=max_frames, init_func=init, blit=True, interval=10, repeat=False)
 
     # Save the animation as an MP4 file
-    ani.save('animation.mp4', writer='ffmpeg', fps=30)
+    ani.save('animation.mp4', writer='ffmpeg', fps=40)
 
     # # Display the animation
     # plt.show()
