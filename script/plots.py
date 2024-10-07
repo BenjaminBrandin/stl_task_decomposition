@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import ast
+import numpy as np
+import random
 
 def read_positions_from_file(file_path, agent_id):
     """Read agent positions from a file and return a dictionary of positions."""
@@ -17,11 +19,25 @@ def read_positions_from_file(file_path, agent_id):
 
 def plot_agent_positions(agent_positions):
     """Plot the positions of each agent."""
-    plt.figure(figsize=(10, 6))
+    plt.figure(figsize=(10, 10))
+
+    agent_colors = {1: 'blue', 2: 'orange', 3: 'green', 4: 'red', 5: 'purple', 6: 'brown', 7: 'magenta'}
     
     for agent_id, positions in agent_positions.items():
         x_coords, y_coords = zip(*positions)
-        plt.plot(x_coords, y_coords, marker='o', label=f'Agent {agent_id}')
+        plt.plot(x_coords, y_coords, marker='o', markersize=1, color=agent_colors[agent_id], label=f'Agent {agent_id}')
+        
+        # Get the last position of the agent
+        last_position = positions[-1]
+        
+        # Add a circle at the last position
+        agent_circle = plt.Circle(last_position, 0.05, fill=True, color=agent_colors[agent_id], alpha=1.0)
+        plt.gca().add_patch(agent_circle)
+
+        # Add text above the circle
+        plt.text(last_position[0], last_position[1] + 0.1, f'Agent {agent_id}', 
+                 ha='center', va='bottom', color=agent_colors[agent_id], fontsize=12)
+
     
     plt.xlabel('X Position')
     plt.ylabel('Y Position')

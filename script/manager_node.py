@@ -148,7 +148,7 @@ class Manager(Node):
         for i, task_graph in enumerate(self.task_graphs):
             computeNewTaskGraph(task_graph, self.comm_graph, phase_edges[i], start_position=start_positions)
 
-        self.print_tasks()    # Uncomment to print the tasks
+        # self.print_tasks()    # Uncomment to print the tasks
         # self.plot_graph()     # Uncomment to plot the graphs
 
 
@@ -222,64 +222,64 @@ class Manager(Node):
 
 
 
-    # def plot_graph(self):
-    #     """Plots the communication graph, initial task graphs, and decomposed task graphs."""
-    #     num_phases = len(self.task_graphs)
-
-    #     # Plot the communication graph in its own figure
-    #     fig, ax = plt.subplots(figsize=(5, 5))
-    #     self.draw_graph(ax, self.comm_graph, "Communication Graph")
-    #     plt.tight_layout()
-    #     plt.show()
-
-    #     # Plot initial and decomposed task graphs for each phase in the same figure
-    #     for i in range(num_phases):
-    #         fig, ax = plt.subplots(1, 2, figsize=(10, 5))  # Create 1 row, 2 columns of subplots
-
-    #         # Plot initial task graph for the current phase in the left subplot
-    #         self.draw_graph(ax[0], self.initial_task_graphs[i], f"Initial Task Graph - Phase {i + 1}")
-
-    #         # Plot decomposed task graph for the current phase in the right subplot
-    #         self.draw_graph(ax[1], self.task_graphs[i], f"Decomposed Task Graph - Phase {i + 1}")
-
-    #         # Adjust layout to prevent overlapping and display the figure
-    #         plt.tight_layout()
-    #         plt.show()
-
-    # def draw_graph(self, ax, graph, title):
-    #     """Draws the graph."""
-    #     pos = nx.spring_layout(graph)  # Use spring layout for better visualization
-    #     nx.draw(graph, pos, with_labels=True, font_weight='bold', ax=ax, 
-    #             node_size=500, node_color="lightblue", edge_color="gray")
-    #     ax.set_title(title)
-
-
-
     def plot_graph(self):
         """Plots the communication graph, initial task graphs, and decomposed task graphs."""
         num_phases = len(self.task_graphs)
-        num_graphs = num_phases * 2 + 1  # Communication graph + initial + decomposed for each phase
-        
-        # Adjust the figure size dynamically based on the number of graphs
-        fig, ax = plt.subplots(1, num_graphs, figsize=(5 * num_graphs, 5))
-        
-        # Plot the communication graph
-        self.draw_graph(ax[0], self.comm_graph, "Communication Graph")
-        
-        # Plot initial and decomposed task graphs for each phase
-        for i in range(num_phases):
-            self.draw_graph(ax[2 * i + 1], self.initial_task_graphs[i], f"Initial Task Graph - Phase {i + 1}")
-            self.draw_graph(ax[2 * i + 2], self.task_graphs[i], f"Decomposed Task Graph - Phase {i + 1}")
-        
-        # Adjust layout to prevent overlapping
+
+        # Plot the communication graph in its own figure
+        fig, ax = plt.subplots(figsize=(5, 5))
+        self.draw_graph(ax, self.comm_graph, "Communication Graph")
         plt.tight_layout()
         plt.show()
+
+        # Plot initial and decomposed task graphs for each phase in the same figure
+        for i in range(num_phases):
+            fig, ax = plt.subplots(1, 2, figsize=(10, 5))  # Create 1 row, 2 columns of subplots
+
+            # Plot initial task graph for the current phase in the left subplot
+            self.draw_graph(ax[0], self.initial_task_graphs[i], f"Initial Task Graph - Phase {i + 1}")
+
+            # Plot decomposed task graph for the current phase in the right subplot
+            self.draw_graph(ax[1], self.task_graphs[i], f"Decomposed Task Graph - Phase {i + 1}")
+
+            # Adjust layout to prevent overlapping and display the figure
+            plt.tight_layout()
+            plt.show()
 
     def draw_graph(self, ax, graph, title):
         """Draws the graph."""
         pos = nx.spring_layout(graph)  # Use spring layout for better visualization
-        nx.draw(graph, pos, with_labels=True, font_weight='bold', ax=ax, node_size=500, node_color="lightblue", edge_color="gray")
+        nx.draw(graph, pos, with_labels=True, font_weight='bold', ax=ax, 
+                node_size=500, node_color="lightblue", edge_color="gray")
         ax.set_title(title)
+
+
+
+    # def plot_graph(self):
+    #     """Plots the communication graph, initial task graphs, and decomposed task graphs."""
+    #     num_phases = len(self.task_graphs)
+    #     num_graphs = num_phases * 2 + 1  # Communication graph + initial + decomposed for each phase
+        
+    #     # Adjust the figure size dynamically based on the number of graphs
+    #     fig, ax = plt.subplots(1, num_graphs, figsize=(5 * num_graphs, 5))
+        
+    #     # Plot the communication graph
+    #     self.draw_graph(ax[0], self.comm_graph, "Communication Graph")
+        
+    #     # Plot initial and decomposed task graphs for each phase
+    #     for i in range(num_phases):
+    #         self.draw_graph(ax[2 * i + 1], self.initial_task_graphs[i], f"Initial Task Graph - Phase {i + 1}")
+    #         self.draw_graph(ax[2 * i + 2], self.task_graphs[i], f"Decomposed Task Graph - Phase {i + 1}")
+        
+    #     # Adjust layout to prevent overlapping
+    #     plt.tight_layout()
+    #     plt.show()
+
+    # def draw_graph(self, ax, graph, title):
+    #     """Draws the graph."""
+    #     pos = nx.spring_layout(graph)  # Use spring layout for better visualization
+    #     nx.draw(graph, pos, with_labels=True, font_weight='bold', ax=ax, node_size=500, node_color="lightblue", edge_color="black")
+    #     ax.set_title(title)
 
 
 
