@@ -34,11 +34,11 @@ def is_barrier_activated(interval, phase):
 
 
 def check_phase(frame):
-    if frame <= 800:
+    if frame <= 825:
         return 1
-    elif frame > 800 and frame <= 1700:
+    elif frame > 825 and frame <= 1725:
         return 2
-    elif frame > 1700:
+    elif frame > 1725:
         return 3
 
 
