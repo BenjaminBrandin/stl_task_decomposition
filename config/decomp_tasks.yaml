@@ -3,7 +3,7 @@ TASK_1:
   EDGE: [5, 4]
   TYPE: "formation_predicate"
   CENTER: [1.8, 1.6]
-  EPSILON: 1.5
+  EPSILON: 1.8
   TEMP_OP: "AlwaysOperator"
   INTERVAL: [80, 80]
   INVOLVED_AGENTS: [5, 4]
@@ -11,8 +11,8 @@ TASK_1:
 TASK_2:
   EDGE: [5, 3]
   TYPE: formation_predicate
-  CENTER: [0.2707589669030826, 0.3775583206866954]
-  EPSILON: 0.19109169629043032
+  CENTER: [0.21955040501426495, 0.24278746001527782]
+  EPSILON: 0.2232340942920255
   TEMP_OP: AlwaysOperator
   INTERVAL: [80, 80]
   INVOLVED_AGENTS: [5, 3]
@@ -20,8 +20,8 @@ TASK_2:
 TASK_3:
   EDGE: [3, 1]
   TYPE: formation_predicate
-  CENTER: [0.8863853015080271, 0.11561306995571706]
-  EPSILON: 0.14279291733032093
+  CENTER: [0.21919651517218916, 0.24323246145479507]
+  EPSILON: 0.22326313930259536
   TEMP_OP: AlwaysOperator
   INTERVAL: [80, 80]
   INVOLVED_AGENTS: [3, 1]
@@ -29,8 +29,8 @@ TASK_3:
 TASK_4:
   EDGE: [1, 2]
   TYPE: formation_predicate
-  CENTER: [0.12022511531856145, 0.13071413125216502]
-  EPSILON: 0.15904024870364133
+  CENTER: [0.8522667051358438, 0.08172717346747409]
+  EPSILON: 0.17609019896184583
   TEMP_OP: AlwaysOperator
   INTERVAL: [80, 80]
   INVOLVED_AGENTS: [1, 2]
@@ -38,8 +38,8 @@ TASK_4:
 TASK_5:
   EDGE: [2, 4]
   TYPE: formation_predicate
-  CENTER: [0.4918640313494004, 0.9329417699351513]
-  EPSILON: 0.1466080263096056
+  CENTER: [0.4509066713687379, 0.9080217640739336]
+  EPSILON: 0.18092961974112293
   TEMP_OP: AlwaysOperator
   INTERVAL: [80, 80]
   INVOLVED_AGENTS: [2, 4]
@@ -50,7 +50,7 @@ TASK_6:
   EDGE: [1, 4]
   TYPE: "formation_predicate"
   CENTER: [1.8, 1.8]
-  EPSILON: 1.0
+  EPSILON: 1.5
   TEMP_OP: "AlwaysOperator"
   INTERVAL: [170, 170]
   INVOLVED_AGENTS: [1, 4]
@@ -58,8 +58,8 @@ TASK_6:
 TASK_7:
  EDGE: [1, 2]
  TYPE: formation_predicate
- CENTER: [0.8547233633214096, 0.8547233628685093]
- EPSILON: 0.27840580502109025
+ CENTER: [0.7997980743823299, 0.7997980743823297]
+ EPSILON: 0.2784058050210902
  TEMP_OP: AlwaysOperator
  INTERVAL: [170, 170]
  INVOLVED_AGENTS: [1, 2]
@@ -67,8 +67,8 @@ TASK_7:
 TASK_8:
  EDGE: [2, 4]
  TYPE: formation_predicate
- CENTER: [0.8547233633215456, 0.8547233628887688]
- EPSILON: 0.2784058050210902
+ CENTER: [0.7997980743823296, 0.7997980743823297]
+ EPSILON: 0.27840580502109025
  TEMP_OP: AlwaysOperator
  INTERVAL: [170, 170]
  INVOLVED_AGENTS: [2, 4]
@@ -77,7 +77,7 @@ TASK_9:
   EDGE: [1, 5]
   TYPE: "formation_predicate"
   CENTER: [-1.8, 1.8]
-  EPSILON: 1.0
+  EPSILON: 1.5
   TEMP_OP: "AlwaysOperator"
   INTERVAL: [170, 170]
   INVOLVED_AGENTS: [1, 5]
@@ -85,7 +85,7 @@ TASK_9:
 TASK_10:
  EDGE: [1, 3]
  TYPE: formation_predicate
- CENTER: [-0.8547233617196534, 0.8547233617194983]
+ CENTER: [-0.7997980743823297, 0.7997980743823299]
  EPSILON: 0.27840580502109025
  TEMP_OP: AlwaysOperator
  INTERVAL: [170, 170]
@@ -94,8 +94,8 @@ TASK_10:
 TASK_11:
  EDGE: [3, 5]
  TYPE: formation_predicate
- CENTER: [-0.8547233617196452, 0.8547233617194941]
- EPSILON: 0.27840580502109025
+ CENTER: [-0.7997980743823297, 0.7997980743823296]
+ EPSILON: 0.2784058050210902
  TEMP_OP: AlwaysOperator
  INTERVAL: [170, 170]
  INVOLVED_AGENTS: [3, 5]
@@ -114,8 +114,8 @@ TASK_12:
 TASK_13:
  EDGE: [1, 3]
  TYPE: formation_predicate
- CENTER: [-0.8434248113841768, 0.5840931164778397]
- EPSILON: 0.2020775146384427
+ CENTER: [-0.8525109962069372, 0.5525452401327409]
+ EPSILON: 0.20207751463844267
  TEMP_OP: AlwaysOperator
  INTERVAL: [270, 270]
  INVOLVED_AGENTS: [1, 3]
@@ -123,8 +123,8 @@ TASK_13:
 TASK_14:
  EDGE: [3, 5]
  TYPE: formation_predicate
- CENTER: [-0.15197545108756566, 0.8889035344645416]
- EPSILON: 0.3026220453173854
+ CENTER: [-0.11212465603064474, 0.7019567820446424]
+ EPSILON: 0.30262204531738546
  TEMP_OP: AlwaysOperator
  INTERVAL: [270, 270]
  INVOLVED_AGENTS: [3, 5]
@@ -133,7 +133,7 @@ TASK_15:
   EDGE: [2, 6]
   TYPE: "formation_predicate"
   CENTER: [0.0, -1.0]
-  EPSILON: 1.0
+  EPSILON: 1.5
   TEMP_OP: "AlwaysOperator"
   INTERVAL: [260, 270]
   INVOLVED_AGENTS: [2, 6]
@@ -141,8 +141,8 @@ TASK_15:
 TASK_16:
  EDGE: [2, 1]
  TYPE: formation_predicate
- CENTER: [-0.7078048982861667, -1.227572640030989]
- EPSILON: 0.15460008971754216
+ CENTER: [-0.7539127923925574, -1.260494198224531]
+ EPSILON: 0.190950920866441
  TEMP_OP: AlwaysOperator
  INTERVAL: [260, 270]
  INVOLVED_AGENTS: [2, 1]
@@ -150,8 +150,8 @@ TASK_16:
 TASK_17:
  EDGE: [1, 6]
  TYPE: formation_predicate
- CENTER: [0.6837081732483519, 0.21984470020896446]
- EPSILON: 0.2116540151826607
+ CENTER: [0.5382377050604792, 0.19683727570978818]
+ EPSILON: 0.30412005390211555
  TEMP_OP: AlwaysOperator
  INTERVAL: [260, 270]
  INVOLVED_AGENTS: [1, 6]
@@ -162,189 +162,275 @@ TASK_17:
 
 # # ----Removed redundant tasks----
 # TASK_1:
-#   EDGE: [5, 4]
-#   TYPE: "formation_predicate"
-#   CENTER: [1.8, 1.6]
-#   EPSILON: 1.0
-#   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [80, 80]
-#   INVOLVED_AGENTS: [5, 4]
-
-# TASK_2:
 #   EDGE: [5, 3]
 #   TYPE: formation_predicate
-#   CENTER: [0.2707589669030826, 0.3775583206866954]
-#   EPSILON: 0.12960081546691857
+#   CENTER: [0.199256441613472, 0.2665141909095965]
+#   EPSILON: 0.19318688697509773
 #   TEMP_OP: AlwaysOperator
 #   INTERVAL: [80, 80]
 #   INVOLVED_AGENTS: [5, 3]
 
-# TASK_3:
-#   EDGE: [3, 1]
-#   TYPE: formation_predicate
-#   CENTER: [0.8863853015080271, 0.11561306995571706]
-#   EPSILON: 0.11484529208641826
-#   TEMP_OP: AlwaysOperator
-#   INTERVAL: [80, 80]
-#   INVOLVED_AGENTS: [3, 1]
-
-# TASK_4:
-#   EDGE: [1, 2]
-#   TYPE: formation_predicate
-#   CENTER: [0.12022511531856145, 0.13071413125216502]
-#   EPSILON: 0.11968697588691492
-#   TEMP_OP: AlwaysOperator
-#   INTERVAL: [80, 80]
-#   INVOLVED_AGENTS: [1, 2]
-
-# TASK_5:
+# TASK_2:
 #   EDGE: [2, 4]
 #   TYPE: formation_predicate
-#   CENTER: [0.4918640313494004, 0.9329417699351513]
-#   EPSILON: 0.11650967861863286
+#   CENTER: [0.5, 1.0]
+#   EPSILON: 1.0
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [70, 80]
+#   INVOLVED_AGENTS: [2, 4]
+
+# TASK_3:
+#   EDGE: [2, 4]
+#   TYPE: formation_predicate
+#   CENTER: [0.47205062179863266, 0.9223457280266795]
+#   EPSILON: 0.16109256075106007
 #   TEMP_OP: AlwaysOperator
 #   INTERVAL: [80, 80]
 #   INVOLVED_AGENTS: [2, 4]
 
-# TASK_6:
-#   EDGE: [2, 6]
-#   TYPE: "epsilon_position_closeness_predicate"
-#   CENTER: [0.0, 0.0]
-#   EPSILON: 0.5
-#   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [60, 80]
-#   INVOLVED_AGENTS: [2, 6]
+# TASK_4:
+#   EDGE: [7, 7]
+#   TYPE: go_to_goal_predicate_2d
+#   CENTER: [0.0, 1.0]
+#   EPSILON: 1.0
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [50, 80]
+#   INVOLVED_AGENTS: [7]
 
-# TASK_7:
-#   EDGE: [2, 1]
+# TASK_5:
+#   EDGE: [1, 7]
 #   TYPE: epsilon_position_closeness_predicate
-#   CENTER: [-0.031071072197047852, -0.033691841898981625]
-#   EPSILON: 0.270590123271231
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 3.0
 #   TEMP_OP: AlwaysOperator
 #   INTERVAL: [60, 80]
-#   INVOLVED_AGENTS: [2, 1]
+#   INVOLVED_AGENTS: [1, 7]
 
-# TASK_8:
+# TASK_6:
 #   EDGE: [1, 6]
 #   TYPE: epsilon_position_closeness_predicate
-#   CENTER: [0.029450534919349805, 0.0313991095239478]
-#   EPSILON: 0.028941380045167775
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 0.5
 #   TEMP_OP: AlwaysOperator
 #   INTERVAL: [60, 80]
 #   INVOLVED_AGENTS: [1, 6]
 
-# #  # phase 2
+# TASK_7:
+#   EDGE: [1, 2]
+#   TYPE: formation_predicate
+#   CENTER: [1.0, 0.0]
+#   EPSILON: 1.0
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [70, 80]
+#   INVOLVED_AGENTS: [1, 2]
+
+# TASK_8:
+#   EDGE: [1, 2]
+#   TYPE: formation_predicate
+#   CENTER: [0.8709507191935355, 0.09918160883153877]
+#   EPSILON: 0.15726917484345215
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [80, 80]
+#   INVOLVED_AGENTS: [1, 2]
 
 # TASK_9:
-#   EDGE: [1, 4]
-#   TYPE: "formation_predicate"
-#   CENTER: [1.8, 1.8]
-#   EPSILON: 1.0
-#   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [170, 170]
-#   INVOLVED_AGENTS: [1, 4]
+#   EDGE: [3, 1]
+#   TYPE: formation_predicate
+#   CENTER: [0.19722302168068015, 0.2478994501005739]
+#   EPSILON: 0.19331384303550217
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [80, 80]
+#   INVOLVED_AGENTS: [3, 1]
 
 # TASK_10:
-#  EDGE: [1, 2]
-#  TYPE: formation_predicate
-#  CENTER: [0.8547233633214096, 0.8547233628685093]
-#  EPSILON: 0.1951693214830126
-#  TEMP_OP: AlwaysOperator
-#  INTERVAL: [170, 170]
-#  INVOLVED_AGENTS: [1, 2]
+#   EDGE: [1, 1]
+#   TYPE: go_to_goal_predicate_2d
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 1.0
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [150, 170]
+#   INVOLVED_AGENTS: [1]
 
 # TASK_11:
-#  EDGE: [2, 4]
-#  TYPE: formation_predicate
-#  CENTER: [0.8547233633215456, 0.8547233628887688]
-#  EPSILON: 0.1951693214932002
-#  TEMP_OP: AlwaysOperator
-#  INTERVAL: [170, 170]
-#  INVOLVED_AGENTS: [2, 4]
+#   EDGE: [1, 7]
+#   TYPE: epsilon_position_closeness_predicate
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 3.0
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [160, 170]
+#   INVOLVED_AGENTS: [1, 7]
 
 # TASK_12:
-#   EDGE: [1, 5]
-#   TYPE: "formation_predicate"
-#   CENTER: [-1.8, 1.8]
-#   EPSILON: 1.0
-#   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [170, 170]
-#   INVOLVED_AGENTS: [1, 5]
+#   EDGE: [1, 6]
+#   TYPE: epsilon_position_closeness_predicate
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 2.0
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [160, 170]
+#   INVOLVED_AGENTS: [1, 6]
 
 # TASK_13:
-#  EDGE: [1, 3]
-#  TYPE: formation_predicate
-#  CENTER: [-0.8547233617196534, 0.8547233617194983]
-#  EPSILON: 0.19516932232794032
-#  TEMP_OP: AlwaysOperator
-#  INTERVAL: [170, 170]
-#  INVOLVED_AGENTS: [1, 3]
+#   EDGE: [1, 2]
+#   TYPE: formation_predicate
+#   CENTER: [0.7997980743823296, 0.7997980743823297]
+#   EPSILON: 0.2784058050210902
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [170, 170]
+#   INVOLVED_AGENTS: [1, 2]
 
 # TASK_14:
-#  EDGE: [3, 5]
-#  TYPE: formation_predicate
-#  CENTER: [-0.8547233617196452, 0.8547233617194941]
-#  EPSILON: 0.19516932232798434
-#  TEMP_OP: AlwaysOperator
-#  INTERVAL: [170, 170]
-#  INVOLVED_AGENTS: [3, 5]
-
-# # # phase 3
+#   EDGE: [1, 3]
+#   TYPE: formation_predicate
+#   CENTER: [-0.7997980743823297, 0.7997980743823296]
+#   EPSILON: 0.27840580502109025
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [170, 170]
+#   INVOLVED_AGENTS: [1, 3]
 
 # TASK_15:
-#   EDGE: [1, 5]
-#   TYPE: "formation_predicate"
-#   CENTER: [-1.0, 1.5]
-#   EPSILON: 0.5
-#   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [270, 270]
-#   INVOLVED_AGENTS: [1, 5]
+#   EDGE: [2, 4]
+#   TYPE: formation_predicate
+#   CENTER: [0.7997980743823299, 0.7997980743823297]
+#   EPSILON: 0.2784058050210902
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [170, 170]
+#   INVOLVED_AGENTS: [2, 4]
 
 # TASK_16:
-#  EDGE: [1, 3]
-#  TYPE: formation_predicate
-#  CENTER: [-0.8434248113841768, 0.5840931164778397]
-#  EPSILON: 0.09532986564776494
-#  TEMP_OP: AlwaysOperator
-#  INTERVAL: [270, 270]
-#  INVOLVED_AGENTS: [1, 3]
+#   EDGE: [3, 5]
+#   TYPE: formation_predicate
+#   CENTER: [-0.7997980743823297, 0.7997980743823299]
+#   EPSILON: 0.2784058050210902
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [170, 170]
+#   INVOLVED_AGENTS: [3, 5]
 
 # TASK_17:
-#  EDGE: [3, 5]
-#  TYPE: formation_predicate
-#  CENTER: [-0.15197545108756566, 0.8889035344645416]
-#  EPSILON: 0.1035217763432144
-#  TEMP_OP: AlwaysOperator
-
-#  INTERVAL: [270, 270]
-#  INVOLVED_AGENTS: [3, 5]
+#   EDGE: [7, 7]
+#   TYPE: go_to_goal_predicate_2d
+#   CENTER: [0.0, 1.0]
+#   EPSILON: 1.0
+#   TEMP_OP: EventuallyOperator
+#   INTERVAL: [110, 170]
+#   INVOLVED_AGENTS: [7]
 
 # TASK_18:
-#   EDGE: [2, 6]
-#   TYPE: "formation_predicate"
-#   CENTER: [0.0, -1.0]
-#   EPSILON: 0.5
-#   TEMP_OP: "AlwaysOperator"
-#   INTERVAL: [260, 270]
-#   INVOLVED_AGENTS: [2, 6]
+#   EDGE: [1, 1]
+#   TYPE: go_to_goal_predicate_2d
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 1.0
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [240, 270]
+#   INVOLVED_AGENTS: [1]
 
 # TASK_19:
-#  EDGE: [2, 1]
-#  TYPE: formation_predicate
-#  CENTER: [-0.7078048982861667, -1.227572640030989]
-#  EPSILON: 0.09355344781331103
-#  TEMP_OP: AlwaysOperator
-#  INTERVAL: [260, 270]
-#  INVOLVED_AGENTS: [2, 1]
+#   EDGE: [1, 7]
+#   TYPE: epsilon_position_closeness_predicate
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 3.0
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [270, 270]
+#   INVOLVED_AGENTS: [1, 7]
 
 # TASK_20:
-#  EDGE: [1, 6]
-#  TYPE: formation_predicate
-#  CENTER: [0.6837081732483519, 0.21984470020896446]
-#  EPSILON: 0.10423021786214216
-#  TEMP_OP: AlwaysOperator
-#  INTERVAL: [260, 270]
-#  INVOLVED_AGENTS: [1, 6]
+#   EDGE: [1, 3]
+#   TYPE: formation_predicate
+#   CENTER: [-1.0, 0.5]
+#   EPSILON: 1.0
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [230, 270]
+#   INVOLVED_AGENTS: [1, 3]
+
+# TASK_21:
+#   EDGE: [1, 3]
+#   TYPE: formation_predicate
+#   CENTER: [-0.8525109962069372, 0.5525452401327408]
+#   EPSILON: 0.20207751463844273
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [270, 270]
+#   INVOLVED_AGENTS: [1, 3]
+
+# TASK_22:
+#   EDGE: [1, 2]
+#   TYPE: formation_predicate
+#   CENTER: [1.0, 1.5]
+#   EPSILON: 1.0
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [260, 270]
+#   INVOLVED_AGENTS: [1, 2]
+
+# TASK_23:
+#   EDGE: [2, 1]
+#   TYPE: formation_predicate
+#   CENTER: [-0.7293534090265852, -1.2430861639043582]
+#   EPSILON: 0.15460008971754213
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [260, 270]
+#   INVOLVED_AGENTS: [2, 1]
+
+# TASK_24:
+#   EDGE: [1, 6]
+#   TYPE: formation_predicate
+#   CENTER: [0.6295392808929218, 0.2106234215296938]
+#   EPSILON: 0.21165401518266072
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [260, 270]
+#   INVOLVED_AGENTS: [1, 6]
+
+# TASK_25:
+#   EDGE: [7, 7]
+#   TYPE: go_to_goal_predicate_2d
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 1.0
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [200, 270]
+#   INVOLVED_AGENTS: [7]
+
+# TASK_26:
+#   EDGE: [6, 6]
+#   TYPE: go_to_goal_predicate_2d
+#   CENTER: [1.3, -0.2]
+#   EPSILON: 1.0
+#   TEMP_OP: EventuallyOperator
+#   INTERVAL: [260, 270]
+#   INVOLVED_AGENTS: [6]
+
+# TASK_27:
+#   EDGE: [5, 5]
+#   TYPE: go_to_goal_predicate_2d
+#   CENTER: [-0.7, 0.8]
+#   EPSILON: 0.5
+#   TEMP_OP: EventuallyOperator
+#   INTERVAL: [210, 270]
+#   INVOLVED_AGENTS: [5]
+
+# TASK_28:
+#   EDGE: [3, 5]
+#   TYPE: formation_predicate
+#   CENTER: [-0.11212465603064471, 0.7019567820446423]
+#   EPSILON: 0.3026220453173854
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [270, 270]
+#   INVOLVED_AGENTS: [3, 5]
+
+# TASK_29:
+#   EDGE: [2, 4]
+#   TYPE: epsilon_position_closeness_predicate
+#   CENTER: [0.0, 0.0]
+#   EPSILON: 2.0
+#   TEMP_OP: AlwaysOperator
+#   INTERVAL: [230, 270]
+#   INVOLVED_AGENTS: [2, 4]
+
+# TASK_30:
+#   EDGE: [4, 4]
+#   TYPE: go_to_goal_predicate_2d
+#   CENTER: [-0.3, 1.3]
+#   EPSILON: 0.5
+#   TEMP_OP: EventuallyOperator
+#   INTERVAL: [240, 270]
+#   INVOLVED_AGENTS: [4]
+
 
 
 

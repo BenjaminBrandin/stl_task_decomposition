@@ -1138,28 +1138,28 @@ class Controller(Node):
         self._wait_for_future = True
 
 
-    def save_positions_to_file(self):
-        """Method to save agent positions to a text file."""
-        if self.agent_id == 1:
-
-            for agent_id, positions in self.agent_positions.items():
-                with open(f'agent_{agent_id}_positions.txt', 'w') as file:
-                    for position in positions:
-                        file.write(f"{position[0]} {position[1]}\n")    
-
     # def save_positions_to_file(self):
-    #     """Method to save agent positions to a text file, creating a new folder each time."""
+    #     """Method to save agent positions to a text file."""
     #     if self.agent_id == 1:
-    #         # Create a new folder with a timestamp to ensure uniqueness
-    #         folder_name = datetime.now().strftime("positions_%Y%m%d_%H%M%S")
-    #         os.makedirs(folder_name, exist_ok=True)
 
-    #         # Loop through each agent's positions and save them in the new folder
     #         for agent_id, positions in self.agent_positions.items():
-    #             file_path = os.path.join(folder_name, f'agent_{agent_id}_positions.txt')
-    #             with open(file_path, 'w') as file:
+    #             with open(f'agent_{agent_id}_positions.txt', 'w') as file:
     #                 for position in positions:
-    #                     file.write(f"{position[0]} {position[1]}\n")
+    #                     file.write(f"{position[0]} {position[1]}\n")    
+
+    def save_positions_to_file(self):
+        """Method to save agent positions to a text file, creating a new folder each time."""
+        if self.agent_id == 1:
+            # Create a new folder with a timestamp to ensure uniqueness
+            folder_name = datetime.now().strftime("positions_%Y%m%d_%H%M%S")
+            os.makedirs(folder_name, exist_ok=True)
+
+            # Loop through each agent's positions and save them in the new folder
+            for agent_id, positions in self.agent_positions.items():
+                file_path = os.path.join(folder_name, f'agent_{agent_id}_positions.txt')
+                with open(file_path, 'w') as file:
+                    for position in positions:
+                        file.write(f"{position[0]} {position[1]}\n")
 
     
 

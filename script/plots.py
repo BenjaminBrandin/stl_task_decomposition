@@ -47,19 +47,33 @@ def plot_agent_positions(agent_positions):
     plt.show()
 
 def main():
-    # List of file paths with corresponding agent IDs
-    file_paths_with_ids = [('agent_1_positions.txt', 1),('agent_2_positions.txt', 2),('agent_3_positions.txt', 3),('agent_4_positions.txt', 4),('agent_5_positions.txt', 5),('agent_6_positions.txt', 6),('agent_7_positions.txt', 7)]
+
+    agent_1 = start_pos = (-0.008157494477927685, -1.0343097448349)
+    pos1 = (-0.029219692572951317, -0.9959407448768616)
+    pos2 = (-0.008157494477927685, -1.0343097448349)
+
+    x_diff = pos1[0] - pos2[0]
+    y_diff = pos1[1] - pos2[1]
+
+    x = pos1[0] + x_diff
+    y = pos1[1] + y_diff
+
+    print(f"{x} {y}")
+
+
+    # # List of file paths with corresponding agent IDs
+    # file_paths_with_ids = [('agent_1_positions.txt', 1),('agent_2_positions.txt', 2),('agent_3_positions.txt', 3),('agent_4_positions.txt', 4),('agent_5_positions.txt', 5),('agent_6_positions.txt', 6),('agent_7_positions.txt', 7)]
     
-    # Initialize an empty dictionary to store all agent positions
-    all_agent_positions = {}
+    # # Initialize an empty dictionary to store all agent positions
+    # all_agent_positions = {}
     
-    for file_path, agent_id in file_paths_with_ids:
-        # Read positions from each file and update the dictionary
-        agent_positions = read_positions_from_file(file_path, agent_id)
-        all_agent_positions.update(agent_positions)
+    # for file_path, agent_id in file_paths_with_ids:
+    #     # Read positions from each file and update the dictionary
+    #     agent_positions = read_positions_from_file(file_path, agent_id)
+    #     all_agent_positions.update(agent_positions)
     
-    # Plot all agent positions
-    plot_agent_positions(all_agent_positions)
+    # # # Plot all agent positions
+    # # plot_agent_positions(all_agent_positions)
 
 if __name__ == '__main__':
     main()

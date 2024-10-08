@@ -44,7 +44,7 @@ def check_phase(frame):
 
 def animate_agent_positions(agent_positions, tasks):
     """Animate the positions of each agent."""
-    fig, ax = plt.subplots(figsize=(11, 11))
+    fig, ax = plt.subplots(figsize=(10, 10))
     
     # Start the animation in phase 1
     phase = 1
@@ -99,7 +99,7 @@ def animate_agent_positions(agent_positions, tasks):
                     # Create text for the barrier
                     decomp_text = ax.text(center[0], center[1] + 0.1, f'collab_task_{involved_agents[0]}-{involved_agents[1]}', ha='center', va='bottom')
                     decomp_texts[f"{task_name}_{agent_id}"] = decomp_text
-                    arrows[f"{task_name}_{agent_id}"] = ax.annotate('', xy=(0, 0), xytext=(0, 0), arrowprops=dict(facecolor='black', shrink=0.05, width=0.01, headwidth=5, linestyle=(0, (5, 5))))
+                    arrows[f"{task_name}_{agent_id}"] = ax.annotate('', xy=(0, 0), xytext=(0, 0), arrowprops=dict(facecolor='black', shrink=0.05, width=0.01, headwidth=5, linestyle=(0, (3, 10))))
                 else:
                     barrier = plt.Circle((center[0], center[1]), epsilon, fill=False, edgecolor=agent_colors[agent_id])
    
@@ -236,10 +236,10 @@ def animate_agent_positions(agent_positions, tasks):
     ani = FuncAnimation(fig, update, frames=max_frames, init_func=init, blit=True, interval=10, repeat=False)
 
     # Save the animation as an MP4 file
-    # ani.save('animation.mp4', writer='ffmpeg', fps=40)
+    ani.save('animation.mp4', writer='ffmpeg', fps=40)
 
     # # Display the animation
-    plt.show()
+    # plt.show()
 
 
 def main():
