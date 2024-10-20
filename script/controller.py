@@ -27,7 +27,7 @@ from tf_transformations import euler_from_quaternion
 
 class Controller(Node):
     """
-    This class is a STL-QP (Signal Temporal Logic-Quadratic Programming) controller for omnidirectional robots and therefore does not consider the orientation of the robots.
+    This class is a STL-QP (Signal Temporal Logic-Quadratic Programming) controller.
     It is responsible for solving the optimization problem and publishing the velocity commands to the agents. 
     """
 
@@ -320,7 +320,7 @@ class Controller(Node):
             Exception: If the task type is not supported.  
 
         Note:
-            The form of the task message is defined in the custom_msg package and looks like this:
+            The form of the task message looks like this:
             int32[] edge
             string type
             float32[] center
@@ -328,7 +328,6 @@ class Controller(Node):
             string temp_op
             int32[] interval
             int32[] involved_agents 
-            float32 start
         """
         barrier_list = []
 
