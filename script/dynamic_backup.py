@@ -184,18 +184,6 @@ def create_approximate_ball_constraints2d(radius:float,points_number:int)-> Tupl
 def create_box_constraint_function(bounds: List[Tuple[float,float]])-> Tuple[ca.MX, ca.MX] :
     """
     Create a casadi function that checks if a given vector is inside the box bounds.
-    
-    Args :
-        bounds : The box bounds in the form np.array([[min1, max1], [min2, max2], ..., [minN, maxN]])
-    
-    Returns:
-        A : The constraints matrix and vector for the ball constraint
-        b : The constraints matrix and vector for the ball constraint
-        vertices : The vertices of the polygon that approximates the ball
-        
-    Notes :
-    To compute a center shift in the constraints it is sufficient to recompute b as b = b -+ A@center_shift. Indeeed A(x-c)-b = Ax - Ac - b = Ax - (b + Ac) 
-    To compute a scaled version of the obtained polygone it is sufficient to scale b  by a scalar gamma> 0. Ax-gamma*b<=0 is the polygon scaled by gamma
     """
 
     base  = np.eye(len(bounds))
